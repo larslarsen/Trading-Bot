@@ -91,8 +91,8 @@ if use_improved_regime:
 else:
     regime = compute_live_regime(prices)
 
-trend_rule = 'cci'          # or 'rei' per live_candidates
-chop_rule = 'williams_r'
+trend_rule = "cci"          # Best from regime_backtest.py (CCI-trend/Williams-chop)
+chop_rule = "williams_r"   # Best performer in chop regime
 active_rule = trend_rule if regime == 'trend' else chop_rule
 print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime})')
 

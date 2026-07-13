@@ -208,3 +208,24 @@ if current_dd > MAX_DRAWDOWN_PCT:
     state.flatten_all(mtm_prices)
     state.halt(f'live_drawdown_flatten_{pd.Timestamp.now().isoformat()}')
     state.save()
+
+
+# Optional: regime quality report (uncomment or pass --regime-stats)
+if 'prices' in dir() and len(prices) > 0:
+    try:
+        from engine import load_screened_universe, analyze_regime_quality, print_regime_stats
+        # Rebuild quick market proxy for the run
+        closes = []
+        for df in prices.values():
+            if len(df) > 0:
+                closes.append(df['close'].iloc[-60:].reset_index(drop=True))
+        if closes:
+            minl = min(len(c) for c in closes)
+            mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
+            if len(mkt) > 30:
+                stats = analyze_regime_quality(mkt, adx_threshold=22, vol_threshold=0.22, er_threshold=0.35)
+                print("\n=== Regime quality for this run ===")
+                print_regime_stats(stats)
+    except Exception as e:
+        pass  # silent in normal runs
+

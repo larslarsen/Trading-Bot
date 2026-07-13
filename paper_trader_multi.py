@@ -81,7 +81,7 @@ print(f'Loaded {len(prices)} coins')
 # Compute market regime from recent data
 # Use improved regime detector (literature-backed ADX + vol + Kaufman ER + hysteresis)
 # Set use_improved_regime=False to fall back to the original simple gate
-use_improved_regime = True
+use_improved_regime = True  # always use improved regime detector
 if use_improved_regime:
     try:
         from engine import improved_compute_live_regime

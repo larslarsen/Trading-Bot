@@ -96,3 +96,7 @@ trade_journal.json
 models/
 run/
 scripts/
+
+# Keep useful regime tools
+!regime_backtest.py
+!regime*.py

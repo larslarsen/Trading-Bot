@@ -587,3 +587,60 @@ def print_regime_stats(stats: dict):
         print(f"  {regime}: {vals}")
     print(f"Recent regimes (last 10): {stats['sample_recent_regimes']}")
 
+
+# --- Simple HMM regime (optional, literature-backed) ---
+try:
+    from hmmlearn.hmm import GaussianHMM
+    HAS_HMMLEARN = True
+except ImportError:
+    HAS_HMMLEARN = False
+
+
+def fit_hmm_regime(market_close: pd.Series, n_states: int = 2, random_state: int = 42):
+    """Fit a GaussianHMM on returns. Returns the fitted model.
+    Typical use: low-vol vs high-vol or trend vs chop states.
+    """
+    if not HAS_HMMLEARN:
+        raise ImportError("hmmlearn not installed. pip install hmmlearn")
+    rets = market_close.pct_change().dropna().values.reshape(-1, 1)
+    model = GaussianHMM(n_components=n_states, covariance_type="full", n_iter=100, random_state=random_state)
+    model.fit(rets)
+    return model
+
+
+def hmm_regime_fn(market_close: pd.Series, day_index: int, hmm_model):
+    """Predict regime using a pre-fitted HMM model.
+    Maps states heuristically: higher mean return or lower vol state -> 'trend'.
+    """
+    if day_index < 25 or hmm_model is None:
+        return "trend"
+    recent_rets = market_close.pct_change().iloc[max(0, day_index-100):day_index+1].dropna().values.reshape(-1, 1)
+    if len(recent_rets) < 5:
+        return "trend"
+    states = hmm_model.predict(recent_rets)
+    last_state = states[-1]
+    # Heuristic mapping
+    if hasattr(hmm_model, 'means_'):
+        means = hmm_model.means_.flatten()
+        # Assume the state with larger |mean| or we can inspect variances
+        if means[last_state] > 0.0005:  # rough positive drift bias
+            return "trend"
+    # Fallback: alternate labeling
+    return "trend" if last_state == 0 else "chop"
+
+
+def compute_hybrid_regime(market_close: pd.Series, day_index: int,
+                          rule_params: dict = None, hmm_model=None, weight_rule: float = 0.7):
+    """Hybrid: rule-based + HMM. Currently rule-weighted for simplicity."""
+    rule_reg = compute_regime(market_close, day_index, **(rule_params or {}))
+    if hmm_model is None:
+        return rule_reg
+    try:
+        hmm_reg = hmm_regime_fn(market_close, day_index, hmm_model)
+        # Simple agreement bias
+        if rule_reg == hmm_reg:
+            return rule_reg
+        return rule_reg if weight_rule > 0.5 else hmm_reg
+    except Exception:
+        return rule_reg
+

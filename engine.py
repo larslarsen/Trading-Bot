@@ -478,3 +478,112 @@ def load_screened_universe(min_bars: int = 60, start_date: str = '2025-01-01', e
         coin_data[stem] = df
     return coin_data
 
+
+# --- Regime quality diagnostics ---
+def analyze_regime_quality(
+    market_close: pd.Series,
+    regime_fn: callable = None,
+    adx_threshold: float = 22.0,
+    vol_threshold: float = 0.22,
+    er_threshold: float = 0.35,
+    min_regime_bars: int = 3,
+):
+    """
+    Analyze a regime series for distribution, persistence, and feature separation.
+    Returns a dict with stats useful for tuning and understanding behavior.
+    """
+    if regime_fn is None:
+        regime_fn = lambda s, i: compute_regime(
+            s, i,
+            adx_threshold=adx_threshold,
+            vol_threshold=vol_threshold,
+            er_threshold=er_threshold,
+            min_regime_bars=min_regime_bars
+        )
+
+    regimes = []
+    adx_vals = []
+    vol_vals = []
+    er_vals = []
+
+    for i in range(len(market_close)):
+        reg = regime_fn(market_close, i)
+        regimes.append(reg)
+
+        if i >= 25:
+            c = market_close.iloc[:i+1]
+            h = c.rolling(2).max()
+            l = c.rolling(2).min()
+            a = float(adx(h, l, c).iloc[i])
+            v = float(realized_vol(c).iloc[i])
+            e = float(kaufman_efficiency_ratio(c).iloc[i])
+
+            adx_vals.append(a if not pd.isna(a) else np.nan)
+            vol_vals.append(v if not pd.isna(v) else np.nan)
+            er_vals.append(e if not pd.isna(e) else np.nan)
+
+    reg_series = pd.Series(regimes, index=market_close.index)
+    dist = reg_series.value_counts(normalize=True).to_dict()
+
+    # Transitions
+    changes = (reg_series != reg_series.shift(1)).sum() - 1
+    total_days = len(reg_series)
+
+    # Durations
+    durations = []
+    current = 1
+    for i in range(1, len(reg_series)):
+        if reg_series.iloc[i] == reg_series.iloc[i-1]:
+            current += 1
+        else:
+            durations.append(current)
+            current = 1
+    durations.append(current)
+
+    dur_series = pd.Series(durations)
+    avg_duration = dur_series.mean()
+    median_duration = dur_series.median()
+    max_duration = dur_series.max()
+
+    # Feature separation
+    feat_df = pd.DataFrame({
+        'regime': regimes[25:],
+        'adx': adx_vals,
+        'vol': vol_vals,
+        'er': er_vals
+    }).dropna()
+
+    feat_by_regime = feat_df.groupby('regime')[['adx', 'vol', 'er']].agg(['mean', 'median']).round(4)
+
+    stats = {
+        'distribution': {k: round(v, 4) for k, v in dist.items()},
+        'transitions': {
+            'total_changes': int(changes),
+            'change_rate_pct': round(100 * changes / total_days, 2),
+            'total_days': int(total_days)
+        },
+        'durations': {
+            'avg': round(avg_duration, 1),
+            'median': round(median_duration, 1),
+            'max': int(max_duration),
+            'num_switches': len(durations) - 1
+        },
+        'features_by_regime': feat_by_regime.to_dict(),
+        'sample_recent_regimes': reg_series.iloc[-10:].tolist()
+    }
+    return stats
+
+
+def print_regime_stats(stats: dict):
+    """Pretty print the diagnostic output."""
+    print("=== Regime Quality Report ===")
+    print(f"Distribution: {stats['distribution']}")
+    print(f"Transitions: {stats['transitions']['total_changes']} changes "
+          f"({stats['transitions']['change_rate_pct']}% of days)")
+    print(f"Durations (bars): avg={stats['durations']['avg']}, "
+          f"median={stats['durations']['median']}, max={stats['durations']['max']}")
+    print("Features by regime:")
+    for regime, vals in stats.get('features_by_regime', {}).items():
+        print(f"  {regime}: {vals}")
+    print(f"Recent regimes (last 10): {stats['sample_recent_regimes']}")
+

@@ -9,6 +9,8 @@ from pathlib import Path
 from enum import Enum
 from typing import Dict, Optional
 
+import numpy as np
+
 # ── CONFIG ──────────────────────────────────────────────────────────
 MAX_DAILY_LOSS_PCT   = 0.03     # 3% daily loss → halt
 MAX_DRAWDOWN_PCT     = 0.20     # 20% peak-to-tough → halt

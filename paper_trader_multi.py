@@ -5,6 +5,7 @@ Uses centralized signals from engine.py (cci/rei/williams_r + others).
 Improved regime detector (ADX + vol + Kaufman ER + hysteresis).
 Defaults: REI (trend) / Williams %R (chop) per verification backtests.
 Long-only, 5 positions max, 20% equity/trade, 20% DD halt, costs.
+Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET flag.
 """
 import sys
 print('START paper_trader_multi.py', flush=True)
@@ -16,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from order_manager_multi import (
+    ENABLE_VOL_TARGET,
     MultiPositionState,
     MAX_POSITIONS,
     MAX_DRAWDOWN_PCT,
@@ -31,6 +33,13 @@ OUT = Path('backtest_output')
 INITIAL = 10000.0
 FETCH = True
 LOOKBACK = 40
+
+# === Paranoia mode (vol targeting) ===
+# Set USE_PARANOID_VOL_TARGET = True when you want to be more defensive.
+# It applies vol scaling *only* when the regime is "chop".
+# In "trend" regimes you get full position sizing (1.0 scale).
+USE_PARANOID_VOL_TARGET = False
+VOL_TARGET = 0.15
 
 
 def fetch_latest(stem):
@@ -96,7 +105,20 @@ else:
 trend_rule = "rei"          # Best from verification (REI-trend/Williams-chop) - stronger on recent OOS/WF
 chop_rule = "williams_r"   # Best performer in chop regime
 active_rule = trend_rule if regime == 'trend' else chop_rule
+# Available centralized rules include: ma30 / ma30_recapture (new), cci, rei, williams_r
 print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime})')
+
+# Compute daily vol scale factor
+# - If USE_PARANOID_VOL_TARGET: only apply vol scaling in chop regime
+# - Otherwise fall back to the global ENABLE_VOL_TARGET behavior
+vol_scale_factor = 1.0
+if USE_PARANOID_VOL_TARGET:
+    if regime == "chop":
+        vol_scale_factor = state.vol_scale()
+    else:
+        vol_scale_factor = 1.0
+elif ENABLE_VOL_TARGET:
+    vol_scale_factor = state.vol_scale()
 
 # Compute signals with the chosen rule
 for stem, df in prices.items():
@@ -186,7 +208,7 @@ for sym in active:
     if not ok:
         print(f'CIRCUIT BREAKER: {reason}, staying flat')
         break
-    size = state.equity * MAX_POSITION_PCT * state.vol_scale()
+    size = state.equity * MAX_POSITION_PCT * vol_scale_factor
     pos = state.open_position(sym, px, size)
     if pos:
         print(f'OPEN {sym} @ {px:.4f}, size=${size:.2f}')

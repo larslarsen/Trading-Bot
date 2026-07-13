@@ -432,6 +432,7 @@ def simulate_portfolio(
     exposure_ratio = float(np.nanmean(exposure_history)) if exposure_history else 0.0
     norm = np.sqrt(max(exposure_ratio, 1e-12))
     eff_sharpe = 0.0 if std_r == 0 else float(np.nan_to_num(np.mean(ret_arr) / (std_r + 1e-12) * np.sqrt(365) * norm, nan=0.0, posinf=0.0, neginf=0.0))
+
     res = {
         "final_equity": round(float(eq_arr[-1]), 2) if len(eq_arr) else initial,
         "return_pct": round(total_ret, 2),
@@ -441,6 +442,24 @@ def simulate_portfolio(
         "max_dd_pct": round(max_dd, 2),
         "trades": trades,
     }
+
+    # DSR / PSR (Bailey & López de Prado 2014) - multiple testing + non-normality correction
+    n_trials = globals().get('n_trials', None)
+    if n_trials is None:
+        n_trials = 1
+    try:
+        sk = float(np.nan_to_num(pd.Series(ret_arr).skew(), 0.0))
+        ku = float(np.nan_to_num(pd.Series(ret_arr).kurtosis(), 0.0)) + 3.0
+        T = len(ret_arr)
+        dsr = deflated_sharpe_ratio(sharpe, int(n_trials), T, skew=sk, kurt=ku)
+        psr = probabilistic_sharpe_ratio(sharpe, benchmark_sr=0.0, T=T, skew=sk, kurt=ku)
+        res["dsr"] = round(dsr, 3)
+        res["psr"] = round(psr, 3)
+        res["n_trials"] = int(n_trials)
+    except Exception:
+        res["dsr"] = ""
+        res["psr"] = ""
+        res["n_trials"] = ""
     if fair_compare_path is not None:
         fair_compare_path = Path(fair_compare_path)
         fair_compare_path.parent.mkdir(parents=True, exist_ok=True)
@@ -448,8 +467,8 @@ def simulate_portfolio(
         with fair_compare_path.open("a", newline="") as f:
             w = csv.writer(f)
             if write_header:
-                w.writerow(["rule_name", "trades", "sharpe", "max_dd_pct", "exposure_ratio", "effective_sharpe"])
-            w.writerow([fair_compare_rule, trades, res["sharpe"], res["max_dd_pct"], res["exposure_ratio"], res["effective_sharpe"]])
+                w.writerow(["rule_name", "trades", "sharpe", "max_dd_pct", "exposure_ratio", "effective_sharpe", "dsr", "psr", "n_trials"])
+            w.writerow([fair_compare_rule, trades, res["sharpe"], res["max_dd_pct"], res["exposure_ratio"], res["effective_sharpe"], res.get("dsr", ""), res.get("psr", ""), res.get("n_trials", "")])
     return res
 
 
@@ -643,4 +662,53 @@ def compute_hybrid_regime(market_close: pd.Series, day_index: int,
         return rule_reg if weight_rule > 0.5 else hmm_reg
     except Exception:
         return rule_reg
+
+
+
+
+# --- Deflated Sharpe Ratio (Bailey & López de Prado 2014) ---
+# Corrects for multiple testing (selection bias) + non-normality + sample length.
+# DSR is the probability that the observed SR is significant after adjustments.
+# Usage: track total number of independent trials (rules/variants tested).
+# For best accuracy, estimate skew and kurtosis from the strategy returns.
+
+import numpy as np
+from scipy.stats import norm
+
+def deflated_sharpe_ratio(observed_sr: float, n_trials: int, T: int, skew: float = 0.0, kurt: float = 3.0) -> float:
+    """
+    Deflated Sharpe Ratio (DSR).
+    observed_sr: annualized Sharpe ratio
+    n_trials: number of strategies/rules tested (including this one)
+    T: number of observations (days or bars)
+    skew: skewness of returns
+    kurt: kurtosis of returns (excess kurtosis + 3)
+    
+    Returns DSR (probability the strategy is truly positive after corrections).
+    Higher is better; >0.95 is strong evidence.
+    """
+    if n_trials < 1:
+        n_trials = 1
+    # Expected max SR under null (false strategy theorem approximation)
+    # Simplified from Bailey/LdP
+    gamma = 0.5772156649  # Euler-Mascheroni
+    expected_max_sr = ( (1 - gamma) * norm.ppf(1 - 1.0 / n_trials) + gamma * norm.ppf(1 - 1.0 / (n_trials * np.e)) ) / np.sqrt(2 * np.log(np.log(n_trials) + 1)) if n_trials > 1 else 0.0
+    
+    # Probabilistic Sharpe Ratio adjustment
+    sr_star = expected_max_sr
+    # Denominator with skew and kurtosis adjustment
+    denom = np.sqrt( (1 - skew * observed_sr + (kurt - 1) * observed_sr**2 / 4 ) / (T - 1) ) if T > 1 else 1.0
+    if denom == 0:
+        denom = 1e-12
+    z = (observed_sr - sr_star) / denom
+    dsr = norm.cdf(z)
+    return float(np.clip(dsr, 0.0, 1.0))
+
+def probabilistic_sharpe_ratio(observed_sr: float, benchmark_sr: float = 0.0, T: int = 252, skew: float = 0.0, kurt: float = 3.0) -> float:
+    """Probabilistic Sharpe Ratio (PSR) - probability SR > benchmark after non-normality correction."""
+    denom = np.sqrt( (1 - skew * observed_sr + ((kurt - 1) * observed_sr**2) / 4 ) / (T - 1) ) if T > 1 else 1.0
+    if denom == 0:
+        denom = 1e-12
+    z = (observed_sr - benchmark_sr) / denom
+    return float(norm.cdf(z))
 

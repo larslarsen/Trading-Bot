@@ -76,3 +76,23 @@ Thumbs.db
 
 # Project specific generated
 live_history.csv
+
+# Experiment / one-off scripts (keep out of main history unless promoted)
+oos_*
+wf_*
+spa_*
+regime_*test*
+regime_*compare*
+run_all_experiments.py
+run_fair_compare.py
+overlapping_walk_forward.py
+walk_forward_validate.py
+*_test.py
+*_sensitivity.py
+*_compare.py
+*_sweep.py
+tmp_*
+trade_journal.json
+models/
+run/
+scripts/

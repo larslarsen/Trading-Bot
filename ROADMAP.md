@@ -1,3 +1,16 @@
+# CURRENT PRODUCTION FOCUS (as of 2026-07)
+
+Core: altcoin daily regime-based long-only rule system (REI in trend / Williams in chop)
+- Centralized in engine.py (donchian, cci, rei, will, chandelier/atr trailing exits)
+- paper_trader_multi.py + order_manager_multi.py for execution (5 pos, ATR trail flag, vol target flag)
+- Strict causal paper_replay_oos.py + rule_fair_compare (DSR/PSR/SPA)
+- Verified: ATR 14/2.0 trail (trend gated) gives lift on 90d OOS vs no-trail baseline.
+
+Tests: green after sync.
+See live_candidates.md for current rules and params.
+Previous BTC ML work is archived in spirit; current is simple falsifiable rules + regime.
+
+---
 # Roadmap — BTC/USDT ML Trading Bot
 
 ## Current State: Validated Baseline

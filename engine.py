@@ -1,5 +1,7 @@
+from __future__ import annotations
 "Canonical trading engine: pure functions for rules, signals, and portfolio mechanics."
 import numpy as np
+from scipy.stats import norm
 import pandas as pd
 from pathlib import Path
 import csv
@@ -129,6 +131,176 @@ def mtf_confirm_signals(df):
     entry = ((sma50 > sma200) & (close > sma50)).astype(int)
     exit_sig = (close < sma50).astype(int)
     return entry, exit_sig
+
+
+def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
+    """True Range."""
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    return tr
+
+
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Average True Range."""
+    tr = true_range(high, low, close)
+    return tr.rolling(period, min_periods=1).mean()
+
+
+def chandelier_exit(df: pd.DataFrame, period: int = 22, mult: float = 3.0) -> pd.Series:
+    """Chandelier Exit long (Le Beau / Elder,  literature-backed trailing stop).
+    Returns 1 on days close < (prior rolling HH - mult * ATR).
+    """
+    high = df.get('high', df['close'])
+    low = df.get('low', df['close'])
+    close = df['close']
+    atr_val = atr(high, low, close, period)
+    hh = high.rolling(period, min_periods=1).max()
+    chand = hh - mult * atr_val
+    return (close < chand.shift(1)).astype(int)
+
+
+def atr_trailing_exit(df: pd.DataFrame, period: int = 14, mult: float = 2.0) -> pd.Series:
+    """Pure ATR trailing stop (ratchet from highest high).
+    Exit long when close < (cummax(high) - mult * ATR).
+    Simpler than Chandelier; no fixed lookback HH.
+    """
+    high = df.get('high', df['close'])
+    low = df.get('low', df['close'])
+    close = df['close']
+    atr_val = atr(high, low, close, period)
+    hh = high.cummax()
+    trail = hh - mult * atr_val
+    return (close < trail.shift(1)).astype(int)
+
+def apply_trailing_overlay(base_exit: pd.Series, trailing_exit: pd.Series) -> pd.Series:
+    """OR base and trailing exits."""
+    return ((base_exit.fillna(0) == 1) | (trailing_exit.fillna(0) == 1)).astype(int)
+
+
+def ma30_recapture_signals(df, period: int = 30):
+    """MA30 Recapture rule (simple moving average recapture).
+
+    Entry: price was <= MA30 on previous bar and now closes strictly above it.
+           Classic "recapture" / pullback-to-MA continuation long signal.
+    Exit: price closes back below the MA30.
+
+    Literature/practitioner context:
+    - Used in trend-continuation and breakout systems (e.g. variations of
+      MA pullback entries, Turtle-style recapture logic, many swing traders).
+    - On daily timeframe for volatile names it acts as a relatively fast
+      trend filter / mean-reversion-to-trend entry.
+    """
+    close = df["close"]
+    ma = close.rolling(period, min_periods=1).mean()
+    # Recapture: crosses from <= MA to > MA
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1))).astype(int)
+    # Simple exit on close below MA
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
+# --- MA Recapture family (investigation variants) ---
+
+def ma30_recapture_ema(df, period: int = 30):
+    """MA30 Recapture using EMA (faster reaction than SMA).
+    Entry: close crosses above EMA30 from below/equal.
+    Exit: close < EMA30.
+    """
+    close = df["close"]
+    ma = close.ewm(span=period, adjust=False).mean()
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1))).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
+def ma30_recapture_rising(df, period: int = 30):
+    """SMA30 Recapture + rising MA filter.
+    Only take recapture if the MA itself is rising (momentum confirmation).
+    """
+    close = df["close"]
+    ma = close.rolling(period, min_periods=1).mean()
+    ma_rising = ma > ma.shift(1)
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & ma_rising).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
+def ma30_50_recapture(df):
+    """Recapture MA30 while price remains above MA50.
+    Combines short-term recapture with longer-term trend filter.
+    """
+    close = df["close"]
+    ma30 = close.rolling(30, min_periods=1).mean()
+    ma50 = close.rolling(50, min_periods=1).mean()
+    entry = ((close > ma30) & (close.shift(1) <= ma30.shift(1)) & (close > ma50)).astype(int)
+    exit_sig = (close < ma30).astype(int)   # exit on losing the short MA
+    return entry, exit_sig
+
+
+# --- Volatility-aware MA recapture variants (per user request) ---
+
+def ma30_recapture_lowvol(df, period: int = 30, vol_window: int = 20):
+    """MA30 Recapture only in low-volatility conditions.
+    Uses realized volatility (std of returns). Signal is active only when
+    current vol is below its own recent median (quieter pullbacks often
+    more reliable for recapture continuation).
+    """
+    close = df["close"]
+    ma = close.rolling(period, min_periods=1).mean()
+    vol = realized_vol(close, vol_window)
+    vol_median = vol.rolling(vol_window * 2, min_periods=vol_window).median()
+    low_vol = vol < vol_median
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & low_vol).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
+def ma30_recapture_vol_expand(df, period: int = 30, vol_window: int = 20):
+    """MA30 Recapture with expanding volatility filter.
+    Only take the signal when volatility is rising (recent vol > previous).
+    This tries to capture recaptures that are accompanied by increasing
+    participation/momentum.
+    """
+    close = df["close"]
+    ma = close.rolling(period, min_periods=1).mean()
+    vol = realized_vol(close, vol_window)
+    vol_expanding = vol > vol.shift(1)
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & vol_expanding).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+# --- Volume-aware MA recapture variants ---
+
+def ma30_recapture_high_volume(df, period: int = 30, vol_ma: int = 20):
+    """MA30 Recapture confirmed by above-average volume.
+    Entry: price recaptures MA30 AND volume > SMA(volume, 20).
+    This is a common volume-confirmation filter for breakout/recapture moves.
+    """
+    close = df["close"]
+    vol = df["volume"]
+    ma = close.rolling(period, min_periods=1).mean()
+    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma//2).mean()
+    high_vol = vol > vol_ma_s
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & high_vol).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
+def ma30_recapture_volume_surge(df, period: int = 30, vol_ma: int = 20, surge_mult: float = 1.5):
+    """MA30 Recapture with volume surge.
+    Only take the signal if volume on the recapture bar is at least surge_mult
+    times the recent average volume (default 1.5x).
+    """
+    close = df["close"]
+    vol = df["volume"]
+    ma = close.rolling(period, min_periods=1).mean()
+    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma//2).mean()
+    surge = vol >= (vol_ma_s * surge_mult)
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & surge).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
+
+
 def get_regime_signals(rule_name: str, df: pd.DataFrame):
     rule = rule_name.lower()
     if rule in ("cci", "cci20"):
@@ -137,6 +309,28 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return rei_signals(df)
     if rule in ("williams", "williams_r", "wr"):
         return williams_r_signals(df)
+    # MA recapture family
+    if rule in ("ma30", "ma30_recapture", "ma30_sma", "recapture", "ma_recapture"):
+        return ma30_recapture_signals(df)
+    if rule in ("ma30_ema", "ema_recapture"):
+        return ma30_recapture_ema(df)
+    if rule in ("ma30_rising", "recapture_rising"):
+        return ma30_recapture_rising(df)
+    if rule in ("ma30_50", "ma30_50_recapture", "dual_ma_recapture"):
+        return ma30_50_recapture(df)
+    if rule in ("ma30_recapture_lowvol", "lowvol_recapture"):
+        return ma30_recapture_lowvol(df)
+    if rule in ("ma30_recapture_vol_expand", "vol_expand_recapture"):
+        return ma30_recapture_vol_expand(df)
+    # Volume-aware MA recapture
+    if rule in ("ma30_recapture_high_volume", "high_volume_recapture", "volume_recapture"):
+        return ma30_recapture_high_volume(df)
+    if rule in ("ma30_recapture_volume_surge", "volume_surge_recapture"):
+        return ma30_recapture_volume_surge(df)
+    # Hurst regime filter (H > 0.5 = trend)
+    if rule in ("hurst_trend", "hurst"):
+        # Use hurst_regime as a dynamic rule switch - caller usually pairs with regime_rule_map
+        return None  # special case handled via regime_fn
     raise ValueError(f"Unknown regime rule: {rule_name}")
 
 
@@ -157,6 +351,116 @@ def realized_vol(close: pd.Series, window: int = 20) -> pd.Series:
     return close.pct_change().rolling(window, min_periods=5).std()
 
 
+# --- Portfolio-level Volatility Targeting (literature style: Harvey 2018, Moreira & Muir 2017, Barroso & Santa-Clara 2015) ---
+def compute_vol_scale(ret_history: list[float], target_vol: float = 0.15, lookback: int = 20, 
+                      bounds: tuple[float, float] = (0.25, 1.5)) -> float:
+    """Simple realized-vol scaling to target constant portfolio volatility.
+    scale = target_vol / recent_annualized_vol
+    Clipped to bounds. Returns 1.0 if insufficient history.
+    Matches the spirit of volatility-managed portfolios: reduce exposure when recent vol is high.
+    """
+    if len(ret_history) < lookback:
+        return 1.0
+    recent = ret_history[-lookback:]
+    vol = float(np.std(recent) * np.sqrt(365))  # annualize assuming daily
+    if vol <= 0:
+        return 1.0
+    scale = target_vol / vol
+    return float(np.clip(scale, bounds[0], bounds[1]))
+
+
+def make_vol_scale_fn(target_vol: float = 0.15, lookback: int = 20, bounds: tuple[float, float] = (0.25, 1.5)):
+    """Factory for a vol_scale_fn compatible with simulate_portfolio."""
+    def _fn(day_i, equity, ret_history):
+        return compute_vol_scale(ret_history, target_vol, lookback, bounds)
+    return _fn
+
+
+# --- Hurst Exponent (persistence / regime filter) ---
+def hurst_exponent(series: pd.Series, max_lag: int = 20) -> float:
+    """Classic R/S Hurst exponent estimate.
+    H > 0.5 → persistent / trending (favor momentum rules)
+    H < 0.5 → anti-persistent / mean-reverting
+    Returns NaN if not enough data.
+    """
+    if len(series) < max_lag + 10:
+        return np.nan
+    lags = range(2, max_lag + 1)
+    rs = []
+    for lag in lags:
+        if lag >= len(series):
+            break
+        # Rescaled range
+        diffs = np.diff(np.log(series.iloc[:lag* (len(series)//lag) ])) if len(series) > lag else np.diff(np.log(series))
+        if len(diffs) < lag:
+            continue
+        # Chunked
+        chunks = len(diffs) // lag
+        if chunks < 1:
+            continue
+        rs_chunk = []
+        for i in range(chunks):
+            chunk = diffs[i*lag:(i+1)*lag]
+            if len(chunk) == 0:
+                continue
+            mean_chunk = np.mean(chunk)
+            dev = np.cumsum(chunk - mean_chunk)
+            r = np.max(dev) - np.min(dev)
+            s = np.std(chunk) if np.std(chunk) > 0 else 1e-12
+            rs_chunk.append(r / s)
+        if rs_chunk:
+            rs.append(np.mean(rs_chunk))
+    if len(rs) < 3:
+        return np.nan
+    # log-log regression
+    lags_arr = np.array(list(lags)[:len(rs)])
+    rs_arr = np.array(rs)
+    if np.any(rs_arr <= 0):
+        rs_arr = np.maximum(rs_arr, 1e-12)
+    slope, _ = np.polyfit(np.log(lags_arr), np.log(rs_arr), 1)
+    h = slope
+    return float(np.clip(h, 0.0, 1.0))
+
+
+def rolling_hurst(series: pd.Series, window: int = 60, max_lag: int = 20) -> pd.Series:
+    """Rolling Hurst for regime filtering."""
+    return series.rolling(window).apply(lambda x: hurst_exponent(pd.Series(x), max_lag), raw=False)
+
+
+def hurst_regime(close: pd.Series, day_index: int, window: int = 60, threshold: float = 0.5) -> str:
+    """Simple regime using Hurst: > threshold = trend, else chop."""
+    if day_index < window:
+        return "chop"
+    hist = close.iloc[max(0, day_index-window+1):day_index+1]
+    h = hurst_exponent(hist)
+    if np.isnan(h):
+        return "chop"
+    return "trend" if h > threshold else "chop"
+
+def ma_crossover_regime(close_market: pd.Series, day_index: int, short: int = 50, long: int = 200) -> str:
+    """Simple MA crossover trend filter (friend suggestion).
+
+    When short MA > long MA → "trend" regime (use trend-following strat, e.g. REI).
+    Otherwise → "chop" regime (use mean-reversion / oscillation strat, e.g. Williams %R).
+
+    Classic trend filter idea: different behavior/strat in clear uptrend vs everything else.
+    Defaults use 50/200 for major trend; faster (20/50) also reasonable for alt daily.
+    """
+    cur = int(day_index)
+    if cur < long:
+        return "chop"  # conservative on insufficient history
+    c = close_market.iloc[:cur + 1]
+    if len(c) < long:
+        return "chop"
+    short_ma = c.rolling(short, min_periods=short).mean().iloc[cur]
+    long_ma = c.rolling(long, min_periods=long).mean().iloc[cur]
+    if pd.isna(short_ma) or pd.isna(long_ma):
+        return "chop"
+    return "trend" if short_ma > long_ma else "chop"
+
+
+
+
 # --- Improved regime detector (literature-grounded) ---
 def compute_regime(
     close_market: pd.Series,
@@ -167,8 +471,10 @@ def compute_regime(
     min_regime_bars: int = 3,
     use_hysteresis: bool = True,
     hysteresis_bars: int = 2,
-    method: str = "rule",   # "rule" | "hmm" | "hybrid"
+    method: str = "rule",   # "rule" | "hurst" | "hmm" | "hybrid" | "ma"
     hmm_model=None,
+    hurst_window: int = 60,
+    hurst_threshold: float = 0.5,
 ) -> str:
     """
     Improved market regime detector.
@@ -179,12 +485,14 @@ def compute_regime(
     - Kaufman Efficiency Ratio (ER) as a clean directional vs chop measure (repeatedly recommended in practitioner regime filters).
     - Hysteresis / minimum duration to avoid whipsaw (practical consensus across sources).
     - HMM option: GaussianHMM on returns (classic for latent low/high-vol or trend/chop regimes; see QuantStart QSTrader example and multiple HMM regime papers).
+    - Hurst exponent for persistence (H > 0.5 = trending/persistent; classic from Mandelbrot, applied in quant regime filters).
     - Theoretical context: Hamilton (1989) Markov switching; Zakamulin & Giner (semi-Markov) showing regime affects optimal trend rules and duration dependence.
 
-    Logic (rule-based default):
-      - "trend" if (ADX >= adx_threshold) AND (ER >= er_threshold) AND (vol <= vol_threshold)
-      - Else "chop"
-      - High vol can be treated as chop for most momentum rules (or a third "crisis" state in future).
+    Logic:
+      - method="rule": ADX + ER + vol (default)
+      - method="hurst": Pure Hurst persistence (H > hurst_threshold -> trend)
+      - method="hmm": HMM
+      - method="hybrid": rule-based with Hurst confirmation for trend
 
     Returns: "trend" or "chop" (extendable).
     """
@@ -228,6 +536,10 @@ def compute_regime(
                 # hybrid: require agreement or default to rule
         except Exception:
             pass  # fall through to rule
+
+    if method == "ma":
+        # Use MA crossover as the regime filter (short MA > long MA = trend)
+        return ma_crossover_regime(close_market, cur, short=50, long=200)
 
     # Core rule-based regime (improved)
     is_trending = (a >= adx_threshold) and (er >= er_threshold) and (vol <= vol_threshold)
@@ -339,6 +651,23 @@ def mr_bounce_signal(close: pd.Series, rsi_period: int = 14, oversold: float = 3
 # -----------------------------
 # Portfolio simulator
 # -----------------------------
+
+def make_regime_gated_vol_scale_fn(regime_series: pd.Series, target_vol: float = 0.15, lookback: int = 20,
+                                   bounds: tuple[float, float] = (0.25, 1.5), apply_in: str = "chop"):
+    """Returns a vol_scale_fn that only applies scaling when regime == apply_in (e.g. 'chop').
+    regime_series must be indexed by date.
+    """
+    vol_base_fn = make_vol_scale_fn(target_vol, lookback, bounds)
+    def _gated_fn(day_i, equity, ret_history):
+        if day_i >= len(regime_series):
+            return 1.0
+        current_regime = regime_series.iloc[day_i]
+        if current_regime == apply_in:
+            return vol_base_fn(day_i, equity, ret_history)
+        return 1.0
+    return _gated_fn
+
+
 def simulate_portfolio(
     price_df: pd.DataFrame,
     sig_df: pd.DataFrame,
@@ -682,6 +1011,19 @@ def hmm_regime_fn(market_close: pd.Series, day_index: int, hmm_model):
         if means[last_state] > 0.0005:  # rough positive drift bias
             return "trend"
     # Fallback: alternate labeling
+    
+    # Hurst method (new literature-backed option)
+    if method == "hurst":
+        return hurst_regime(close_market, day_index, window=hurst_window, threshold=hurst_threshold)
+
+    # Hybrid: rule-based + Hurst confirmation (only declare trend if both agree)
+    if method == "hybrid":
+        rule_reg = "trend" if (a >= adx_threshold and e >= er_threshold and v <= vol_threshold) else "chop"
+        h_reg = hurst_regime(close_market, day_index, window=hurst_window, threshold=hurst_threshold)
+        if rule_reg == "trend" and h_reg == "trend":
+            return "trend"
+        return "chop"
+
     return "trend" if last_state == 0 else "chop"
 
 
@@ -709,8 +1051,6 @@ def compute_hybrid_regime(market_close: pd.Series, day_index: int,
 # Usage: track total number of independent trials (rules/variants tested).
 # For best accuracy, estimate skew and kurtosis from the strategy returns.
 
-import numpy as np
-from scipy.stats import norm
 
 def deflated_sharpe_ratio(observed_sr: float, n_trials: int, T: int, skew: float = 0.0, kurt: float = 3.0) -> float:
     """Robust DSR (Bailey & López de Prado 2014)."""
@@ -745,8 +1085,6 @@ def probabilistic_sharpe_ratio(observed_sr: float, benchmark_sr: float = 0.0, T:
 # --- Stepwise SPA helpers (Hsu et al. 2010 / adapted from spa_hsu_focused.py)
 # Studentized performance + stepwise critical value for identifying superior rules
 # while controlling for data snooping.
-from scipy.stats import norm
-import numpy as np
 
 def studentized_performance(strat_returns, benchmark_returns):
     """Studentized difference (Hansen/Hsu style)."""

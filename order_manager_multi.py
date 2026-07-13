@@ -72,6 +72,7 @@ class Position:
 
 class MultiPositionState:
     def __init__(self, initial_capital=1000.0):
+        self.cash = float(initial_capital)
         self.equity = float(initial_capital)
         self.peak_equity = float(initial_capital)
         self.daily_pnl = 0.0
@@ -89,6 +90,7 @@ class MultiPositionState:
         if STATE_FILE.exists():
             with open(STATE_FILE) as f:
                 data = json.load(f)
+            self.cash = float(data.get("cash", self.cash))
             self.equity = float(data.get("equity", self.equity))
             self.peak_equity = float(data.get("peak_equity", self.peak_equity))
             self.daily_pnl = float(data.get("daily_pnl", self.daily_pnl))
@@ -102,7 +104,8 @@ class MultiPositionState:
     def save(self):
         with open(STATE_FILE, "w") as f:
             json.dump({
-                "equity": self.equity,
+                "cash": self.cash,
+            "equity": self.equity,
                 "peak_equity": self.peak_equity,
                 "daily_pnl": self.daily_pnl,
                 "halted": self.halted,
@@ -126,7 +129,7 @@ class MultiPositionState:
             "equity_after": self.equity,
         }
         self.trades.append(trade)
-        self.equity = self.equity + pnl - fees
+        self.equity = self.cash + 0  # will be corrected on next MTM or by cash updates
         self.peak_equity = max(self.peak_equity, self.equity)
         self.daily_pnl += pnl - fees
         self._log_trade(trade)
@@ -188,13 +191,14 @@ class MultiPositionState:
     def open_position(self, symbol, fill_price, size_usd):
         if len(self.positions) >= MAX_POSITIONS:
             return None
-        target = min(size_usd, self.equity * MAX_POSITION_PCT)
+        target = min(size_usd, self.cash * MAX_POSITION_PCT)
         if target <= 0:
             return None
         fill = fill_price * (1 + SLIPPAGE_BPS + COST_BPS)
         shares = target / fill
         pos = Position(symbol, PositionSide.LONG, fill, shares)
         self.positions[symbol] = pos
+        self.cash -= target   # deduct cash used (NAV unchanged at fill)
         self.save()
         return pos
 
@@ -205,6 +209,7 @@ class MultiPositionState:
         proceeds = pos.shares * exit_price * (1 - COST_BPS)
         pnl = proceeds - pos.shares * pos.entry
         fees = pos.shares * pos.entry * COST_BPS + pos.shares * exit_price * COST_BPS
+        self.cash += proceeds - fees   # cash back from close
         self.record_trade(
             PositionSide.LONG,
             pos.entry,
@@ -226,12 +231,12 @@ class MultiPositionState:
         self.save()
 
     def update_equity_from_mtm(self, prices: Dict[str, float]):
-        mtm = 0.0
+        pos_value = 0.0
         for sym, pos in self.positions.items():
             px = prices.get(sym)
             if px is not None and px > 0:
-                mtm += pos.shares * px
-        self.equity = self.cash_like() + mtm
+                pos_value += pos.shares * px
+        self.equity = self.cash + pos_value   # correct NAV = cash left + current market value
         self.peak_equity = max(self.peak_equity, self.equity)
         if self.peak_equity > 0:
             self.max_dd = max(self.max_dd, (self.peak_equity - self.equity) / self.peak_equity)

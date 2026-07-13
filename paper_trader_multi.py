@@ -2,12 +2,14 @@
 Live regime-aware paper trader for screened altcoins.
 
 Uses centralized signals from engine.py (cci/rei/williams_r + others).
-Improved regime detector (ADX + vol + Kaufman ER + hysteresis).
+Improved regime detector (ADX + vol + Kaufman ER + hysteresis). Optional Hurst persistence filter.
 Defaults: REI (trend) / Williams %R (chop) per verification backtests.
-Long-only, 5 positions max, 20% equity/trade, 20% DD halt, costs.
+Long-only, hard cap 5 positions (ranked by signal strength), 20% equity/trade, 20% DD halt, costs.
 Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET flag.
 """
 import sys
+from datetime import datetime
+print(f"\n=== paper_trader_multi run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===", flush=True)
 print('START paper_trader_multi.py', flush=True)
 import json
 from pathlib import Path
@@ -40,6 +42,12 @@ LOOKBACK = 40
 # In "trend" regimes you get full position sizing (1.0 scale).
 USE_PARANOID_VOL_TARGET = False
 VOL_TARGET = 0.15
+
+# Hurst regime (literature-backed persistence filter)
+# H > 0.5 suggests persistent/trending behavior -> favor momentum rules
+USE_HURST_REGIME = False
+HURST_WINDOW = 60
+HURST_THRESHOLD = 0.5
 
 
 def fetch_latest(stem):
@@ -93,10 +101,38 @@ print(f'Loaded {len(prices)} coins')
 # Use improved regime detector (literature-backed ADX + vol + Kaufman ER + hysteresis)
 # Set use_improved_regime=False to fall back to the original simple gate
 use_improved_regime = True  # always use improved regime detector
-if use_improved_regime:
+USE_MA_REGIME = True  # Try friend suggestion: MA crossover (short > long) as regime filter
+if USE_HURST_REGIME:
+    from engine import hurst_regime, load_screened_universe
+    # Build market close proxy for Hurst
+    closes = []
+    for df in prices.values():
+        if len(df) > 0:
+            closes.append(df['close'].iloc[-HURST_WINDOW-5:].reset_index(drop=True))
+    if closes:
+        minl = min(len(c) for c in closes)
+        mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
+        regime = hurst_regime(mkt, len(mkt)-1, window=HURST_WINDOW, threshold=HURST_THRESHOLD)
+    else:
+        regime = "chop"
+elif use_improved_regime:
     try:
-        from engine import improved_compute_live_regime
-        regime = improved_compute_live_regime(prices)
+        from engine import improved_compute_live_regime, compute_regime
+        if USE_MA_REGIME:
+            # Use simple MA crossover as regime (short MA > long MA = trend)
+            from engine import load_screened_universe
+            closes = []
+            for df in prices.values():
+                if len(df) > 0:
+                    closes.append(df['close'].iloc[-60:].reset_index(drop=True))
+            if closes:
+                minl = min(len(c) for c in closes)
+                mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
+                regime = compute_regime(mkt, len(mkt)-1, method="ma")
+            else:
+                regime = "chop"
+        else:
+            regime = improved_compute_live_regime(prices)
     except Exception:
         regime = compute_live_regime(prices)
 else:
@@ -106,7 +142,7 @@ trend_rule = "rei"          # Best from verification (REI-trend/Williams-chop) -
 chop_rule = "williams_r"   # Best performer in chop regime
 active_rule = trend_rule if regime == 'trend' else chop_rule
 # Available centralized rules include: ma30 / ma30_recapture (new), cci, rei, williams_r
-print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime})')
+print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime}, ma={USE_MA_REGIME})')
 
 # Compute daily vol scale factor
 # - If USE_PARANOID_VOL_TARGET: only apply vol scaling in chop regime
@@ -120,15 +156,47 @@ if USE_PARANOID_VOL_TARGET:
 elif ENABLE_VOL_TARGET:
     vol_scale_factor = state.vol_scale()
 
-# Compute signals with the chosen rule
+# Compute signals with the chosen rule + strength for ranking
 for stem, df in prices.items():
     try:
         entry, exit_sig = get_regime_signals(active_rule, df)
         last_entry = int(entry.iloc[-1]) if len(entry) > 0 else 0
         last_exit = int(exit_sig.iloc[-1]) if len(exit_sig) > 0 else 0
-        raw_signals[stem] = {'entry': last_entry, 'exit': last_exit}
+
+        strength = 0.0
+        if active_rule == "williams_r":
+            # Williams %R strength: higher = more oversold (wr is negative, e.g. -95 is stronger than -82)
+            high = pd.Series(df["high"].values, index=df.index)
+            low = pd.Series(df["low"].values, index=df.index)
+            close = pd.Series(df["close"].values, index=df.index)
+            period = 14
+            highest = high.rolling(period, min_periods=1).max()
+            lowest = low.rolling(period, min_periods=1).min()
+            wr = -100 * (highest - close) / (highest - lowest + 1e-12)
+            last_wr = float(wr.iloc[-1]) if len(wr) > 0 else -50.0
+            # Add small bonus for how much it has risen (positive diff)
+            wr_diff = float(wr.diff().iloc[-1]) if len(wr) > 1 else 0.0
+            strength = (-last_wr) + max(0.0, wr_diff * 2.0)
+        elif active_rule == "rei":
+            # REI strength: higher positive rei is better
+            close = pd.Series(df["close"].values, index=df.index)
+            high = pd.Series(df["high"].values, index=df.index)
+            low = pd.Series(df["low"].values, index=df.index)
+            up_move = high - high.shift(1)
+            down_move = low.shift(1) - low
+            up = up_move.where((up_move > 0) & (up_move > down_move), 0).fillna(0)
+            down = down_move.where((down_move > 0) & (down_move > up_move), 0).fillna(0)
+            rng = (high - low).rolling(14, min_periods=1).mean()
+            rei = 100 * (up.rolling(14, min_periods=1).sum() - down.rolling(14, min_periods=1).sum()) / (rng + 1e-12)
+            last_rei = float(rei.iloc[-1]) if len(rei) > 0 else 0.0
+            rei_diff = float(rei.diff().iloc[-1]) if len(rei) > 1 else 0.0
+            strength = last_rei + max(0.0, rei_diff * 0.5)
+        else:
+            strength = 1.0  # fallback
+
+        raw_signals[stem] = {'entry': last_entry, 'exit': last_exit, 'strength': strength}
     except Exception as e:
-        raw_signals[stem] = {'entry': 0, 'exit': 0}
+        raw_signals[stem] = {'entry': 0, 'exit': 0, 'strength': 0.0}
 
 # Build active list: open on entry; keep if no exit (or re-evaluate on entry for simplicity)
 active = []
@@ -138,7 +206,10 @@ for sym in list(state.positions.keys()):
 
 for sym, sigs in raw_signals.items():
     if sigs['entry']:
-        active.append(sym)
+        active.append((sym, sigs.get('strength', 0.0)))
+
+# Rank by strength descending (best first)
+active = [sym for sym, _ in sorted(active, key=lambda x: -x[1])]
 
 # For coins we are in, force close on explicit exit
 positions_to_close = []
@@ -146,7 +217,8 @@ for sym in list(state.positions.keys()):
     if sym in raw_signals and raw_signals[sym]['exit']:
         positions_to_close.append(sym)
 
-print(f'Active entry signals ({active_rule}): {len(active)}')
+raw_active_count = len([s for s in raw_signals.values() if s.get('entry')])
+print(f'Active entry signals ({active_rule}): {raw_active_count} (ranked, taking top {MAX_POSITIONS} by strength)')
 
 # Reconcile stale positions
 for sym in list(state.positions.keys()):
@@ -159,7 +231,7 @@ for sym in list(state.positions.keys()):
 
 # Circuit breaker check
 first_price = None
-for sym in list(state.positions.keys()) + active[:1]:
+for sym in list(state.positions.keys()) + (active[:1] if active else []):
     px_row = prices.get(sym)
     if px_row is not None:
         first_price = float(px_row['close'].iloc[-1])
@@ -222,7 +294,7 @@ if len(state.equity_history) > 365:
     state.equity_history = state.equity_history[-365:]
 state.save()
 
-print(f'MTM equity: ${eq:.2f}')
+print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M")}] MTM equity: ${eq:.2f}')
 print(f'Peak: ${state.peak_equity:.2f}')
 print(f'Max DD: {state.max_dd:.2%}')
 print(f'Positions: {len(state.positions)}')

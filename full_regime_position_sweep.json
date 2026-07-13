@@ -1,0 +1,62 @@
+{
+  "5": {
+    "final_equity": 11515.17,
+    "return_pct": 15.15,
+    "sharpe": 1.18,
+    "effective_sharpe": 1.16,
+    "exposure_ratio": 0.976,
+    "max_dd_pct": 34.42,
+    "trades": 255,
+    "dsr": 1.0,
+    "psr": 1.0,
+    "n_trials": 1
+  },
+  "8": {
+    "final_equity": 13698.64,
+    "return_pct": 36.99,
+    "sharpe": 2.21,
+    "effective_sharpe": 2.19,
+    "exposure_ratio": 0.976,
+    "max_dd_pct": 35.44,
+    "trades": 405,
+    "dsr": 1.0,
+    "psr": 1.0,
+    "n_trials": 1
+  },
+  "10": {
+    "final_equity": 13588.68,
+    "return_pct": 35.89,
+    "sharpe": 2.13,
+    "effective_sharpe": 2.11,
+    "exposure_ratio": 0.976,
+    "max_dd_pct": 37.2,
+    "trades": 514,
+    "dsr": 1.0,
+    "psr": 1.0,
+    "n_trials": 1
+  },
+  "12": {
+    "final_equity": 15596.82,
+    "return_pct": 55.97,
+    "sharpe": 2.81,
+    "effective_sharpe": 2.78,
+    "exposure_ratio": 0.975,
+    "max_dd_pct": 37.83,
+    "trades": 615,
+    "dsr": 1.0,
+    "psr": 1.0,
+    "n_trials": 1
+  },
+  "15": {
+    "final_equity": 16196.92,
+    "return_pct": 61.97,
+    "sharpe": 3.02,
+    "effective_sharpe": 2.97,
+    "exposure_ratio": 0.969,
+    "max_dd_pct": 38.01,
+    "trades": 764,
+    "dsr": 1.0,
+    "psr": 1.0,
+    "n_trials": 1
+  }
+}

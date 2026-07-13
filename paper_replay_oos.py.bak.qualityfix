@@ -54,6 +54,7 @@ def compute_regime(prefix):
         return improved_compute_live_regime(prefix)
     except:
         return 'trend'
+
 def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', initial=10000.0, use_trailing=False):
     oos_dates = all_dates[(all_dates >= pd.Timestamp(start)) & (all_dates <= pd.Timestamp(end))]
     cash = initial
@@ -82,7 +83,8 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
         # Closes
         to_close = [s for s in list(positions.keys()) if s not in active]
 
-        # Clean trailing (ATR 14/2.0 gated to trend)
+
+        # Clean trailing - use engine atr_trailing_exit on recent sub, only in trend (exact match to working ad-hoc logic)
         if use_trailing:
             reg = compute_regime(pre)
             if reg == 'trend':
@@ -94,7 +96,7 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
                                 recent = sub.iloc[-max(14*2, 30):]
                                 if atr_trailing_exit(recent, 14, 2.0).iloc[-1] == 1:
                                     to_close.append(sym)
-                            except:
+                            except Exception as e:
                                 pass
 
         # Actually process the closes (signal + trailing)
@@ -114,12 +116,12 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
             if px is None or px <= 0:
                 continue
             fill = px * (1 + SLIP_BPS + COST_BPS)
-            size_usd = cash * POS_PCT
+            size_usd = cash * POS_PCT   # use current cash for sizing
             if size_usd < 100:
                 continue
             shares = size_usd / fill
             positions[sym] = SimPosition(sym, fill, shares)
-            cash -= shares * fill
+            cash -= shares * fill   # spend the cash
             trade_count += 1
 
         # End of day equity = cash + marked positions
@@ -131,6 +133,7 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
         # DD check (simplified flatten)
         peak = max(equity_hist) if equity_hist else initial
         if peak > 0 and (peak - eq) / peak > 0.20:
+            # flatten
             for sym, pos in list(positions.items()):
                 px = current_prices.get(sym, pos.entry)
                 proceeds = pos.shares * px * (1 - COST_BPS)
@@ -158,27 +161,30 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
         dd = (peak - e) / peak if peak > 0 else 0
         max_dd = max(max_dd, dd)
 
-    # Return curve
+    # Return curve for actual returns inspection
     oos_dates_used = oos_dates[:len(equity_hist)]
     curve = [(str(d.date()), float(e)) for d, e in zip(oos_dates_used, equity_hist)]
     return {
-        'return_pct': round(ret_pct, 1),
-        'sharpe': round(sr, 2),
-        'effective_sharpe': round(eff_sr, 2),
-        'max_dd_pct': round(max_dd * 100, 1),
-        'trades': trade_count,
-        'avg_pos': round(avg_pos, 1),
-        'exposure': round(exp, 2),
-        'days': len(equity_hist),
-        'final_equity': round(equity_hist[-1], 2) if equity_hist else initial,
-        'equity_curve': curve
-    }
+        return {
+            'return_pct': round(ret_pct, 1),
+            'sharpe': round(sr, 2),
+            'effective_sharpe': round(eff_sr, 2),
+            'max_dd_pct': round(max_dd * 100, 1),
+            'trades': trade_count,
+            'avg_pos': round(avg_pos, 1),
+            'exposure': round(exp, 2),
+            'days': len(equity_hist),
+            'final_equity': round(equity_hist[-1], 2) if equity_hist else initial,
+            'equity_curve': curve   # list of (date_str, equity)
+        }
 
-def main():
+
+        def main():
     print("Loading screened data for fixed paper replay...")
     data, dates = load_data()
     print(f"Coins: {len(data)}, {dates[0].date()} to {dates[-1].date()}")
 
+    # Only the requested 90-day simulated paper trade
     lbl, st, en = "last_90d", "2026-04-14", "2026-07-12"
     print(f"\n=== Simulated Paper Trade Replay: {lbl} ({st} to {en}) ===\n")
 
@@ -198,6 +204,7 @@ def main():
         results[name] = res
         print(f"{name:16s} | Start: $10000 | End: ${res['final_equity']:.2f} | Total Return: {res['return_pct']}%")
 
+
     # Save full curves
     import pandas as pd
     df_list = []
@@ -210,6 +217,7 @@ def main():
         out_df = pd.concat(df_list, axis=1)
         out_df.to_csv("backtest_output/paper_replay_90d_equity.csv")
         print(f"\nFull equity curve saved to backtest_output/paper_replay_90d_equity.csv ({len(out_df)} days)")
+        print("You can load this CSV to see every day's actual equity for all three variants.")
 
 if __name__ == "__main__":
     main()

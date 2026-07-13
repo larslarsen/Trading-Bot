@@ -76,5 +76,11 @@ def main():
     print(f"Baseline Donchian40: equity={b['final_equity']}, return={b['return_pct']}%, sharpe={b['sharpe']}, eff_sharpe={b['effective_sharpe']}, max_dd={b['max_dd_pct']}%, trades={b['trades']}, exposure={b['exposure_ratio']}")
     print(f"Regime switched   : equity={r['final_equity']}, return={r['return_pct']}%, sharpe={r['sharpe']}, eff_sharpe={r['effective_sharpe']}, max_dd={r['max_dd_pct']}%, trades={r['trades']}, exposure={r['exposure_ratio']}")
 
+
+    print("\nSimulating Donchian-trend / Williams-chop variant (closer to live canonical)...")
+    r2 = simulate_portfolio(price_df, base_sig, initial=1000, max_positions=5, max_position_pct=0.2, cost_bps=8, slippage_bps=5,
+                            regime_fn=reg_fn, regime_rule_map={'trend': base_sig, 'chop': will_sig})
+    print(f"Donchian-trend/Williams-chop: equity={r2['final_equity']}, return={r2['return_pct']}%, sharpe={r2['sharpe']}, eff_sharpe={r2['effective_sharpe']}, max_dd={r2['max_dd_pct']}%, exposure={r2['exposure_ratio']}")
+
 if __name__ == "__main__":
     main()

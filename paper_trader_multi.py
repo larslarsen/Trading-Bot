@@ -1,8 +1,10 @@
-#!/usr/bin/env python3
 """
-Live paper trader: Donchian 20 on screened alts.
-Validated benchmark: 10 max positions, no per-trade stops,
-20% portfolio drawdown flatten, long-only.
+Live regime-aware paper trader for screened altcoins.
+
+Uses centralized signals from engine.py (cci/rei/williams_r + others).
+Improved regime detector (ADX + vol + Kaufman ER + hysteresis).
+Defaults: REI (trend) / Williams %R (chop) per verification backtests.
+Long-only, 5 positions max, 20% equity/trade, 20% DD halt, costs.
 """
 import sys
 print('START paper_trader_multi.py', flush=True)
@@ -91,7 +93,7 @@ if use_improved_regime:
 else:
     regime = compute_live_regime(prices)
 
-trend_rule = "cci"          # Best from regime_backtest.py (CCI-trend/Williams-chop)
+trend_rule = "rei"          # Best from verification (REI-trend/Williams-chop) - stronger on recent OOS/WF
 chop_rule = "williams_r"   # Best performer in chop regime
 active_rule = trend_rule if regime == 'trend' else chop_rule
 print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime})')

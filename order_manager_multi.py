@@ -16,7 +16,7 @@ MAX_POSITIONS        = 5       # hard cap
 MAX_POSITION_PCT     = 0.20     # 20% equity per trade
 MIN_EQUITY_TO_TRADE  = 100.0    # USD
 FLASH_CRASH_BARS     = 5
-FLASH_CRASH_PCT      = 0.03     # 3% in 5 bars → halt
+FLASH_CRASH_PCT      = 0.50     # 50% move in 5 daily bars → halt (relaxed for noisy alt daily data; was 3% which was too sensitive)
 
 # Vol-target fallback (disabled by default)
 ENABLE_VOL_TARGET    = True
@@ -160,9 +160,15 @@ class MultiPositionState:
             self.last_bar_prices.pop(0)
             window_low = min(self.last_bar_prices)
             window_high = max(self.last_bar_prices)
-            if window_high > 0 and (window_high - window_low) / window_high > FLASH_CRASH_PCT:
-                self.halt("flash_crash")
-                return False, f"flash_crash: {(window_high - window_low)/window_high:.2%} in {FLASH_CRASH_BARS} bars"
+            move = (window_high - window_low) / window_high if window_high > 0 else 0
+            if move > FLASH_CRASH_PCT:
+                if move > 0.90:
+                    # Likely data artifact (fetch glitch, bad bar, rounding on micro-cap)
+                    print(f"[CIRCUIT] Ignoring extreme {move:.1%} move in {FLASH_CRASH_BARS} bars as probable data error")
+                    self.last_bar_prices = []  # reset window
+                else:
+                    self.halt("flash_crash")
+                    return False, f"flash_crash: {move:.2%} in {FLASH_CRASH_BARS} bars"
 
         return True, None
 

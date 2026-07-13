@@ -35,3 +35,15 @@ Freeze the regime switcher as the live candidate runner:
 ## Next Tuning Step
 - Run penalty/Sharpe rebalance on the 3 candidate objective comparison approaches if desired.
 - Optionally build the multi-rule runner that cycles among the top 5 rules under cap-5.
+
+## Regime Detector Update (2026-07-12)
+- Tuned rule-based (ADX 22 / vol 0.22 / ER 0.35 + hysteresis): 33% trend / 67% chop, 9% flip rate, avg duration ~11 bars.
+- Clear feature separation: trend days have high ADX (~60) + high ER (~0.47).
+- Backtest results (5 pos cap, 8+5bps costs):
+  - Plain Donchian40: 529% ret, SR 1.35, eff_SR 0.54, DD 51%, exp 0.16
+  - CCI trend / Williams chop: 1266% ret, SR 1.71, eff_SR 1.61, DD 83%, exp 0.88 (winner on return + eff Sharpe)
+  - Donchian trend / Williams chop: 403% ret, SR 1.26, eff_SR 1.05, DD 77%
+- Pure HMM collapsed; rule-based + hysteresis wins for this altcoin universe.
+- paper_trader_multi.py and regime_backtest.py now use the best mapping.
+
+See regime_backtest.py and analyze_regime_quality() for details.

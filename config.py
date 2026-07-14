@@ -6,7 +6,27 @@ the live trader and the backtest reproducible and reviewable: change a threshold
 here, not in three files.
 """
 
+import os
 from portfolio_engine import EngineConfig
+
+
+# ── Hardware (parallelism) ────────────────────────────────────────────────
+# Number of PHYSICAL CPU cores on the host. Drives n_jobs for the model
+# trainer / walk-forward / grid workers. Set via TRADING_BOT_CORES env var so
+# you can change it (e.g. after upgrading your CPU) without editing this file:
+#   export TRADING_BOT_CORES=8
+# Logical-core / hyperthread counts are NOT used: crypto feature pipelines are
+# memory-bandwidth bound, so oversubscribing to SMT threads just adds contention.
+# Fallback: half of os.cpu_count() (≈ physical cores on most consumer chips),
+# or 4 if detection fails.
+def _detect_physical_cores() -> int:
+    guess = (os.cpu_count() or 8) // 2
+    return max(1, guess)
+
+
+N_PHYSICAL_CORES = int(os.environ.get("TRADING_BOT_CORES") or _detect_physical_cores())
+# Leave one core free for the system + the collector daemon.
+N_JOBS = max(1, N_PHYSICAL_CORES - 1)
 
 # ── Risk / cost (shared engine) ───────────────────────────────────────────
 CONFIG = EngineConfig(
@@ -37,8 +57,13 @@ HURST_THRESHOLD = 0.5
 
 # ── Active rules per regime (best from verification) ──────────────────────
 TREND_RULE = "rei"             # REI-trend strongest on recent OOS / walk-forward
-CHOP_RULE = "donchian40"       # D40 breakout (orig signal); +16.2% / 4-of-6 WF slices, beats williams_r
-SECONDARY_CHOP_RULE = "ma30_ema"  # fill-in when donchian40 is silent (chop days w/ no 40d breakout); +31.4% / 5-of-6 WF
+CHOP_RULE = "cci"             # CCI is the chop-primary per 2026-07-14 decision:
+                              # best isolated entry edge (+14.1 entry contr, 33.6% win%),
+                              # +29.2% vs d40 +7.9% in rei+cci head-to-head. Held until
+                              # MTF 4h data (≈Oct 2026) achieves stat significance.
+SECONDARY_CHOP_RULE = "ma30_ema"  # fill-in when cci is silent (chop days w/ no signal);
+                              # rei+cci head-to-head showed cci already fires every
+                              # meaningful chop day, so this is rarely triggered.
 
 # ── Vol target (paranoia mode) ────────────────────────────────────────────
 USE_PARANOID_VOL_TARGET = False

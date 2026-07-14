@@ -86,3 +86,36 @@ def test_live_lock_prevents_concurrent_corruption(scratch_state):
     eng.save()
     reloaded = MultiPositionState(state_file=sf, journal_file=jf)
     assert len(reloaded.positions) == 2
+
+
+def test_live_reset_daily_clears_flash_window_and_persists(scratch_state):
+    eng, sf, jf = scratch_state
+    eng._flash_window = [100.0, 200.0, 300.0]
+    eng.daily_pnl = -42.0
+    eng.reset_daily()
+    assert eng._flash_window == []
+    assert eng.daily_pnl == 0.0
+    reloaded = MultiPositionState(state_file=sf, journal_file=jf)
+    assert reloaded._flash_window == []
+    assert reloaded.daily_pnl == 0.0
+
+
+def test_live_save_persists_halt_state(scratch_state):
+    eng, sf, jf = scratch_state
+    eng.halt("test_halt")
+    reloaded = MultiPositionState(state_file=sf, journal_file=jf)
+    assert reloaded.halted is True
+    assert reloaded.halt_reason == "test_halt"
+
+
+def test_live_missing_state_file_is_fresh(scratch_state):
+    # a brand-new instance pointed at a non-existent file starts at defaults
+    _, sf, jf = scratch_state
+    if sf.exists():
+        sf.unlink()
+    if jf.exists():
+        jf.unlink()
+    eng = MultiPositionState(state_file=sf, journal_file=jf)
+    assert eng.equity == pytest.approx(eng.config.initial_capital)
+    assert eng.halted is False
+    assert len(eng.positions) == 0

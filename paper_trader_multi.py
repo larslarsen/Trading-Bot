@@ -183,6 +183,12 @@ for stem, df in prices.items():
             last_rei = float(rei.iloc[-1]) if len(rei) > 0 else 0.0
             rei_diff = float(rei.diff().iloc[-1]) if len(rei) > 1 else 0.0
             strength = last_rei + max(0.0, rei_diff * 0.5)
+        elif active_rule == "donchian40":
+            # Donchian-40 strength: how far close is above the 40d high (breakout distance %)
+            high = pd.Series(df["high"].values, index=df.index)
+            close = pd.Series(df["close"].values, index=df.index)
+            upper = high.rolling(40, min_periods=1).max().shift(1)
+            strength = float(((close.iloc[-1] - upper.iloc[-1]) / (upper.iloc[-1] + 1e-12)) * 100) if len(close) > 1 else 0.0
         else:
             strength = 1.0  # fallback
 

@@ -358,6 +358,8 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return rei_signals(df)
     if rule in ("rsi", "rsi_signals"):
         return rsi_signals(df)
+    if rule in ("donchian40", "d40", "donchian"):
+        return donchian_signal(df["high"], df["low"], df["close"], lookback=40)
     if rule in ("tsi", "tsi_signals"):
         return tsi_signals(df)
     if rule in ("bop", "bop_signals"):

@@ -37,7 +37,7 @@ HURST_THRESHOLD = 0.5
 
 # ── Active rules per regime (best from verification) ──────────────────────
 TREND_RULE = "rei"             # REI-trend strongest on recent OOS / walk-forward
-CHOP_RULE = "williams_r"       # Williams %R best in chop
+CHOP_RULE = "donchian40"       # D40 breakout (orig signal); +16.2% / 4-of-6 WF slices, beats williams_r
 
 # ── Vol target (paranoia mode) ────────────────────────────────────────────
 USE_PARANOID_VOL_TARGET = False

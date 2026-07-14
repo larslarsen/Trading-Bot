@@ -40,7 +40,36 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## CHOP-LEG DEEP TEST (2026-07-14) — tsi/bop/ma30_50 vs LIVE
+## DEEP-UNIVERSE SCORECARD (2026-07-14) — REAL STATISTICAL POWER
+9 deep-history majors/mids (ADA,ALGO,AVAX,CRV,DOGE,ETH,LRC,MATIC,SOL), 1450-bar
+common window 2020-09 -> 2024-09, **66 WF slices**. This is the data we already had.
+
+| candidate   | meanRet | worst  | pos/n | effSR | meanDD | Calmar | win% |
+| mtf         | +11.6%  | -29.9 | 24/66 | +1.16 |  8.3% | 1.41  | 7.6% |
+| ma30_ema    | +10.1%  | -29.7 | 26/66 | +0.85 |  8.3% | 2.02  | 4.5% |
+| cci         | +10.0%  | -39.9 | 27/66 | +0.68 | 10.7% | 2.40  | 6.8% |
+| donchian40  |  +9.9%  | -29.7 | 19/66 | +0.95 |  5.5% | 1.08  | 3.0% | <- baseline
+| d40+ma30_ema|  +9.9%  | -44.9 | 27/66 | +0.76 | 11.2% | 2.26  | 3.0% |
+| tsi         |  +8.8%  | -54.5 | 26/66 | +0.60 | 11.5% | 1.37  | 3.0% |
+| rsi         |  +8.8%  | -29.7 | 18/66 | +0.80 |  4.6% | 1.89  | 9.8% |
+| bop         |  +7.7%  | -49.8 | 27/66 | +0.48 | 17.0% | 1.33  | 7.6% |
+
+Paired vs donchian40 (exact sign test, 66 slices):
+  ma30_ema  +0.2  15/44  p=0.049*  (marginal +)
+  cci       +0.1  21/55  p=0.105
+  tsi       -1.1  12/36  p=0.065   (trending WORSE)
+  bop       -2.2  17/55  p=0.006*  (SIGNIFICANTLY WORSE)
+  mtf       +1.7  17/33  p=1.000
+  d40+ma30  -0.0  14/35  p=0.311
+
+DECISION: With REAL power (66 slices), the MEXC-alts "tsi/bop beat live" result is
+REVERSED. On majors/mids: donchian40 is a solid baseline; tsi is NOT better (p=0.065
+worse), bop is SIGNIFICANTLY WORSE (p=0.006). ma30_ema marginally better (p=0.049)
+but tiny effect. The live chop rule (d40+ma30_ema) is JUSTIFIED — NOT a weak choice.
+CAVEAT: this is majors/mids, not the live low-cap MEXC alts; edges may differ. Kraken
+backfill (running) will give a Kraken universe to double-check. The earlier chop-leg
+"wins" were SMALL-SAMPLE ARTIFACTS (8-12 slices on low-caps).
+
 Full switched strategy (8 finer slices first, then 12 finer slices @8d).
 
 8-slice (coarse) result — INFLATED by slicing variance:

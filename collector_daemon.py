@@ -86,7 +86,7 @@ def get_ex(name: str):
     return _ex_cache[name]
 
 
-def map_symbols(ex, bare_list):
+def map_symbols(ex, bare_list: list[str]) -> dict:
     """Map bare stems (e.g. BTCUSDT) to ccxt symbols.
 
     Handles spot-style (BASE/QUOTE) and derivative-style (BASE/QUOTE:SETTLE)
@@ -109,7 +109,7 @@ def map_symbols(ex, bare_list):
     return out
 
 
-def build_jobs():
+def build_jobs() -> list:
     jobs = []
     if ENABLE['mexc']:
         sf = sorted(SCREEN_DIR.glob('screen_liqu_idio_*.csv'))
@@ -133,7 +133,7 @@ def build_jobs():
     return jobs
 
 
-def fetch_forward(ex, ccxt_sym, tf, fname):
+def fetch_forward(ex, ccxt_sym: str, tf: str, fname: Path) -> int:
     """Append new bars to fname. Returns count of newly added bars."""
     existing = pd.read_csv(fname) if fname.exists() else None
     if existing is not None and len(existing):
@@ -198,7 +198,7 @@ def run_cycle(gate: RateGate, jobs: list, start_index: int = 0) -> tuple[int, in
     return total_new, done
 
 
-def main():
+def main() -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     ROOT.mkdir(parents=True, exist_ok=True)
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -45,6 +45,6 @@ VOL_TARGET = 0.15
 
 # ── Trailing exits (optional, off by default) ─────────────────────────────
 USE_CHANDELIER_TRAILING = False
-USE_ATR_TRAILING = True        # 14/2.0, trend-gated (best clean exit variant)
+USE_ATR_TRAILING = True        # 14/2.0, trend-gated (walk-forward: +effSR, lower DD)
 ATR_PERIOD = 14
 ATR_MULT = 2.0

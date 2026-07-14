@@ -40,7 +40,35 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## (c) CASH-IN-CHOP baseline (8 finer slices)
+## (b) SIZING SWEEP (Scholz 2012) — DONE
+LIVE full system across {10,15,20,25}% position fractions, 8 WF slices:
+| frac | meanRet | effSR | meanDD | Calmar |
+| 10%  |  +5.1%  | +1.21 |  8.1%  |  1.35  |
+| 15%  |  +7.6%  | +1.34 | 11.6%  |  1.44  |
+| 20%  |  +7.9%  | +1.54 | 13.3%  |  2.41  |  <- current
+| 25%  | +10.0%  | +1.45 | 15.7%  |  2.44  |
+Scholz's "smaller => better risk-adjusted" does NOT hold on our positively-edged data:
+20% has best effSR (1.54), 25% best Calmar. No fraction is significant (p=0.73-1.00).
+DECISION: KEEP 20% (literature-tested, near-optimal, DD 13.3% safe under 20% halt).
+
+## (3) REGIME DETECTOR comparison — DONE (negative result)
+Full system, swap ONLY detector, 8 WF slices:
+| detector   | meanRet | effSR | meanDD | Calmar | chop% |
+| choppiness | +24.5%  | +2.91 | 12.9%  | 3.87  | 0%*  |
+| kaufman    | +17.1%  | +1.16 | 17.1%  | 1.36  | 26%  |
+| mesa       | +17.1%  | +1.16 | 17.1%  | 1.36  | 35%  |
+| ma(50/200) |  +8.3%  | +0.67 | 18.6%  | 1.14  | 40%  |
+| rule(cur)  |  +7.9%  | +1.54 | 13.3%  | 2.41  | 33%  |
+* choppiness is DEGENERATE on our 68-alt mean-close proxy: CI sits near 0 (smooth
+  aggregate never "choppy"), so it ALWAYS returns trend -> system becomes REI-only.
+  Its +24.5% is an artifact of "use REI everywhere", NOT a detector win.
+  (Choppiness Index function fixed to be NaN-robust, but rejected as live detector.)
+kaufman/mesa beat rule by +9.1 but only 2/3 slices (p=1.000, NOT significant).
+ma ties rule (confirms user's observation MA crossover ~= rule, but not better).
+DECISION: KEEP current 'rule' detector. No candidate is a validated improvement
+(nothing significant at p<0.05; choppiness degenerate). Literature-first: don't swap
+without validation.
+
 - FULL system: +7.9% mean, effSR +1.54, DD 13.3%
 - CASH-in-chop: +2.5% mean, effSR +0.75, DD 4.1%
 - Chop trading adds return + risk-adjusted edge (effSR 1.54 vs 0.75) but NOT significant

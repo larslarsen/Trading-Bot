@@ -412,6 +412,20 @@ def kaufman_efficiency_ratio(close: pd.Series, period: int = 20) -> pd.Series:
     return er
 
 
+def choppiness_index(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Choppiness Index: 100 * log10( sum(|H-L| over period) / (period-HH - period-LL) ) / log10(period).
+    CI ~100 = maximally choppy; CI ~0 = strongly directional/trending.
+    Regime use: CI > threshold (~61.8) => chop; else => trend.
+    Robust: clips rng to avoid log(0)/NaN when the window high==low.
+    """
+    atr1 = (high - low).abs()
+    sum_atr = atr1.rolling(period, min_periods=1).sum()
+    rng = (high.rolling(period, min_periods=1).max() - low.rolling(period, min_periods=1).min()).clip(lower=1e-12)
+    ci = 100.0 * (np.log10(sum_atr + 1e-12) - np.log10(rng)) / np.log10(max(period, 2))
+    return ci.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+
 def realized_vol(close: pd.Series, window: int = 20) -> pd.Series:
     """Simple realized volatility (std of returns)."""
     return close.pct_change().rolling(window, min_periods=5).std()
@@ -606,6 +620,32 @@ def compute_regime(
     if method == "ma":
         # Use MA crossover as the regime filter (short MA > long MA = trend)
         return ma_crossover_regime(close_market, cur, short=50, long=200)
+
+    if method == "choppiness":
+        # Choppiness Index on the market proxy: CI high => chop, low => trend.
+        hi = c.rolling(2).max(); lo = c.rolling(2).min()
+        ci = float(choppiness_index(hi, lo, c, period=14).iloc[cur])
+        if pd.isna(ci):
+            return "trend"
+        return "chop" if ci > 61.8 else "trend"
+
+    if method == "kaufman":
+        # Kaufman ER-only adaptive: ER above threshold => trend, else chop.
+        # (No ADX/vol gating — pure directional efficiency, the simplest regime filter.)
+        er = float(kaufman_efficiency_ratio(c).iloc[cur])
+        if pd.isna(er):
+            return "trend"
+        return "trend" if er >= er_threshold else "chop"
+
+    if method == "mesa":
+        # Mesa/British-Bank-style adaptive: ER with an adaptive (vol-scaled) threshold.
+        # When volatility is high, require a stronger ER to call trend (avoids whipsaw).
+        er = float(kaufman_efficiency_ratio(c).iloc[cur])
+        vol = float(realized_vol(c).iloc[cur])
+        if pd.isna(er) or pd.isna(vol):
+            return "trend"
+        adaptive_thr = er_threshold * (1.0 + 2.0 * vol)
+        return "trend" if er >= adaptive_thr else "chop"
 
     # Core rule-based regime (improved)
     is_trending = (a >= adx_threshold) and (er >= er_threshold) and (vol <= vol_threshold)

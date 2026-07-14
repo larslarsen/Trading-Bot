@@ -40,7 +40,23 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## MA-RECAPTURE FAMILY (isolated, 2026-07-14) — 66 WF slices, 9 deep majors
+## REGIME DETECTOR on DEEP universe (2026-07-14) — 66 WF slices, 9 deep majors
+Same full strategy, swap ONLY detector method.
+
+| detector    | meanRet | effSR | meanDD | Calmar |
+| choppiness  | +10.0%  | +0.75 | 11.2% | 1.49  |
+| rule (live) |  +9.9%  | +0.76 | 11.2% | 2.26  | <- current, best Calmar
+| mesa        |  +9.8%  | +0.81 | 11.2% | 1.88  |
+| kaufman     |  +9.4%  | +0.71 | 11.8% | 1.87  |
+| ma (50/200) |  +7.9%  | +0.64 | 10.9% | 1.81  |
+
+Paired vs 'rule': ma -2.0 p=0.238, choppiness +0.1 p=0.885, kaufman -0.4 p=0.581,
+mesa -0.0 p=0.227. NONE beats 'rule' at p<0.05. 'rule' has best Calmar (2.26).
+
+DECISION: Current 'rule' detector VALIDATED on deep universe. The earlier low-cap
+"choppiness wins +24.5%" was the degenerate always-trend artifact; here choppiness is
+no longer degenerate but still doesn't beat rule. ma (50/200) is the WORST. Keep 'rule'.
+
 Variants as chop leg (trend=REI). Tests your friend's MA-recapture idea head-to-head.
 
 | variant      | meanRet | worst  | pos/n | effSR | meanDD | Calmar | win% |

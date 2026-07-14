@@ -87,3 +87,69 @@ def test_make_cross_features_only_btc_symbol_returns_unchanged(tmp_path: Path):
     btc = df.rename(columns={'ts': 'timestamp'}).copy()
     out = add_multi_asset_features(btc, str(out_path))
     assert 'ETHUSDT_btc_ratio' not in out.columns
+
+
+# ── Edge cases / branch coverage ──────────────────────────────────────────
+def test_load_multi_missing_file_returns_empty():
+    from multi_asset_features import load_multi
+    out = load_multi('/tmp/definitely-missing-xyz.csv')
+    assert out.empty
+
+
+def test_load_multi_filters_to_known_pairs_and_localizes(tmp_path: Path):
+    from multi_asset_features import load_multi, PAIRS
+    rng = pd.date_range('2024-01-01', periods=10, freq='5min')  # tz-NAIVE
+    rows = []
+    for sym in ['BTCUSDT', 'ETHUSDT', 'UNKNOWN']:
+        for i, ts in enumerate(rng):
+            rows.append({'ts': ts, 'symbol': sym, 'open': 1.0, 'high': 1.0,
+                         'low': 1.0, 'close': 1.0, 'volume': 1.0})
+    p = tmp_path / 'm.csv'
+    pd.DataFrame(rows).to_csv(p, index=False)
+    out = load_multi(p)
+    # unknown symbol excluded; tz-naive 'ts' localized to UTC
+    assert set(out['symbol'].unique()) == {'BTCUSDT', 'ETHUSDT'}
+    assert out['timestamp'].dt.tz is not None
+
+
+def test_make_cross_features_none_passthrough():
+    from multi_asset_features import make_cross_features
+    btc = pd.DataFrame({'timestamp': pd.date_range('2024-01-01', periods=5, freq='5min', tz='UTC'),
+                        'close': [1.0] * 5})
+    out = make_cross_features(btc, None)
+    assert out is btc  # returns the same frame (no copy)
+
+
+def test_make_cross_features_empty_passthrough():
+    from multi_asset_features import make_cross_features
+    btc = pd.DataFrame({'timestamp': pd.date_range('2024-01-01', periods=5, freq='5min', tz='UTC'),
+                        'close': [1.0] * 5})
+    out = make_cross_features(btc, pd.DataFrame())
+    assert len(out) == len(btc)
+
+
+def test_make_cross_features_insufficient_symbols_passthrough(tmp_path: Path):
+    from multi_asset_features import make_cross_features
+    # only BTCUSDT present -> < 2 symbols -> passthrough
+    rng = pd.date_range('2024-01-01', periods=10, freq='5min', tz='UTC')
+    df = pd.DataFrame({'ts': rng, 'symbol': 'BTCUSDT',
+                       'open': 1.0, 'high': 1.0, 'low': 1.0, 'close': 1.0, 'volume': 1.0})
+    p = tmp_path / 'solo.csv'
+    df.to_csv(p, index=False)
+    from multi_asset_features import load_multi
+    btc = df.rename(columns={'ts': 'timestamp'}).copy()
+    out = make_cross_features(btc, load_multi(p))
+    assert 'ETHUSDT_btc_ratio' not in out.columns
+
+
+def test_make_cross_features_left_join_no_row_loss(tmp_multi_csv: Path):
+    # df_btc shorter than the merged cross table -> left join must keep all btc rows
+    from multi_asset_features import make_cross_features, load_multi
+    btc = pd.read_csv(tmp_multi_csv, parse_dates=['ts'])
+    btc = btc[btc['symbol'] == 'BTCUSDT'].copy().reset_index(drop=True)
+    btc = btc.rename(columns={'ts': 'timestamp'}).head(50)  # subset of rows
+    df_multi = load_multi(tmp_multi_csv)
+    out = make_cross_features(btc, df_multi)
+    assert len(out) == 50  # no rows dropped
+    # cross columns appear and are NaN where timestamps didn't match
+    assert 'ETHUSDT_btc_ratio' in out.columns

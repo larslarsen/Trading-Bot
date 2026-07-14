@@ -63,7 +63,12 @@ CHOP_RULE = "cci"             # CCI is the chop-primary per 2026-07-14 decision:
                               # MTF 4h data (≈Oct 2026) achieves stat significance.
 SECONDARY_CHOP_RULE = "ma30_ema"  # fill-in when cci is silent (chop days w/ no signal);
                               # rei+cci head-to-head showed cci already fires every
-                              # meaningful chop day, so this is rarely triggered.
+                              # meaningful chop day, so this is rarely triggered
+                              # (0/8 WF slices changed; inert safety net on 68-coin set).
+                              # TREND NEEDS NO FILL-IN: measured REI silent on only
+                              # 1/63 trend days (1.6%) universe-wide vs CCI 0/97 — so
+                              # the asymmetry is intentional, not an oversight. Going
+                              # flat on the rare silent-trend day is harmless.
 
 # ── Vol target (paranoia mode) ────────────────────────────────────────────
 USE_PARANOID_VOL_TARGET = False

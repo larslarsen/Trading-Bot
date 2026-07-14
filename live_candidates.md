@@ -40,7 +40,21 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## KRAKEN CROSS-CHECK (2026-07-14) — 473 coins, 14 WF slices, 2025-06 -> 2026-07
+## (b) SIZING SWEEP on DEEP universe (2026-07-14) — 66 slices, 9 majors — CLOSES LOOP
+Original 8-slice low-cap sweep said 20% best; re-run at 66 slices for power.
+
+| frac | meanRet | effSR | meanDD | Calmar |
+| 10%  |  +5.1%  | +0.73 |  6.1% | 2.02  |
+| 15%  |  +7.3%  | +0.72 |  8.8% | 2.14  |
+| 20%  |  +9.9%  | +0.76 | 11.2% | 2.26  | <- current
+| 25%  | +12.7%  | +0.79 | 12.9% | 2.39  |
+
+Paired vs 20%: 10% -4.7, 15% -2.5, 25% +2.9; all p=0.784 (NOT significant).
+MONOTONIC: larger fraction => higher return/effSR/Calmar. Contradicts Scholz's
+"smaller better" (but Scholz says scenario-dependent; our +edge rewards leverage).
+25% best effSR/Calmar but gap is noise. DECISION: KEEP 20% (conservative, validated;
+25% would need real edge to justify +1.7pp extra DD). All live components now tested @66 slices.
+
 Out-of-sample venue check (different exchange, broader universe, HARDER regime:
 2025-26 included chop/crash where trend-following got chewed up).
 

@@ -107,3 +107,6 @@ scripts/
 *_results.json
 *_sweep_results.json
 *regime*_results.json
+
+# coverage artifact
+.coverage

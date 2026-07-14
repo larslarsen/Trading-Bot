@@ -19,6 +19,7 @@ from engine import (
     true_range, atr, chandelier_exit, atr_trailing_exit, apply_trailing_overlay,
     ma30_recapture_signals, kaufman_efficiency_ratio, choppiness_index,
     realized_vol, bb_width, bbwp, bbwp_signals,
+    donchian_signal, get_regime_signals,
 )
 
 N = 60
@@ -240,3 +241,51 @@ def test_signals_do_not_mutate_inputs():
                ma30_recapture_signals, bbwp_signals):
         fn(df)
     pd.testing.assert_frame_equal(df, snap)
+
+
+# ── donchian_signal + get_regime_signals dispatch ─────────────────────────
+def test_donchian_signal_no_entry_on_first_bar():
+    close = np.linspace(1, 20, 20)
+    high = close + 0.5
+    low = close - 0.5
+    df = _df(close, high, low)
+    sig = donchian_signal(df["high"], df["low"], df["close"], lookback=10)
+    assert sig.iloc[0] == 0  # shift(1) NaN -> no entry on bar 0
+    assert sig.dtype == int
+
+
+def test_get_regime_signals_dispatch_shapes():
+    df = _df(np.linspace(1, 60, 60))
+    for rule in ["cci", "rei", "rsi", "donchian40", "tsi", "bop",
+                 "williams", "ma30", "ma30_ema", "bbwp"]:
+        entry, exit_sig = get_regime_signals(rule, df)
+        assert len(entry) == len(df) and entry.dtype == int
+        assert len(exit_sig) == len(df) and exit_sig.dtype == int
+
+
+def test_get_regime_signals_donchian_exit_is_low_break():
+    close = list(np.linspace(100, 60, 40))  # steady decline
+    df = _df(close)
+    entry, exit_sig = get_regime_signals("donchian40", df)
+    don_low = df["low"].rolling(40, min_periods=1).min().shift(1)
+    expected = (df["close"] < don_low).astype(int)
+    pd.testing.assert_series_equal(exit_sig, expected)
+
+
+@pytest.mark.parametrize("rule", [
+    "ma30_rising", "ma30_50", "ma30_recapture_lowvol",
+    "ma30_recapture_vol_expand", "ma30_recapture_high_volume",
+    "ma30_recapture_volume_surge",
+])
+def test_get_regime_signals_ma30_variant_family(rule):
+    # _df always includes a 'volume' column, so the volume-aware variants work
+    df = _df(np.linspace(1, 60, 60))
+    entry, exit_sig = get_regime_signals(rule, df)
+    assert len(entry) == len(df) and entry.dtype == int
+    assert len(exit_sig) == len(df) and exit_sig.dtype == int
+
+
+def test_get_regime_signals_unknown_rule_raises():
+    with pytest.raises(ValueError):
+        get_regime_signals("not_a_real_rule", _df(np.linspace(1, 30, 30)))
+

@@ -1,10 +1,38 @@
 from __future__ import annotations
-"Canonical trading engine: pure functions for rules, signals, and portfolio mechanics."
+"""Canonical trading engine: pure functions for rules, signals, and portfolio mechanics."""
 import numpy as np
 from scipy.stats import norm
 import pandas as pd
 from pathlib import Path
 import csv
+
+# ---------------------------------------------------------------------------
+# Small internal helpers (keep signal bodies readable, no behavior change)
+# ---------------------------------------------------------------------------
+def _col(df: pd.DataFrame, name: str) -> pd.Series:
+    """Extract a price column as a Series sharing ``df``'s index."""
+    return pd.Series(df[name].values, index=df.index)
+
+
+def _ma_recapture_core(close: pd.Series, period: int = 30,
+                          extra_filter: pd.Series | None = None,
+                          ma: pd.Series | None = None) -> tuple[pd.Series, pd.Series]:
+    """Shared MA-recapture entry/exit.
+
+    Entry: price recaptures the MA (<= MA on prior bar, strictly above now).
+    Exit:  price closes back below the MA.
+    ``ma`` may be passed precomputed (e.g. an EMA) to vary the average
+    type; otherwise a rolling SMA of ``period`` is used.
+    ``extra_filter`` (a 0/1 or bool Series) ANDs onto the entry when given,
+    preserving each variant's distinct gating logic.
+    """
+    if ma is None:
+        ma = close.rolling(period, min_periods=1).mean()
+    entry = ((close > ma) & (close.shift(1) <= ma.shift(1))).astype(int)
+    if extra_filter is not None:
+        entry = (entry & extra_filter).astype(int)
+    exit_sig = (close < ma).astype(int)
+    return entry, exit_sig
 
 
 # -----------------------------
@@ -240,114 +268,72 @@ def ma30_recapture_signals(df, period: int = 30):
       trend filter / mean-reversion-to-trend entry.
     """
     close = df["close"]
-    ma = close.rolling(period, min_periods=1).mean()
-    # Recapture: crosses from <= MA to > MA
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1))).astype(int)
-    # Simple exit on close below MA
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    return _ma_recapture_core(close, period)
 
 
 # --- MA Recapture family (investigation variants) ---
+# Each variant is the same recapture core plus ONE extra entry filter.
 
 def ma30_recapture_ema(df, period: int = 30):
-    """MA30 Recapture using EMA (faster reaction than SMA).
-    Entry: close crosses above EMA30 from below/equal.
-    Exit: close < EMA30.
-    """
+    """MA30 Recapture using EMA (faster reaction than SMA)."""
     close = df["close"]
     ma = close.ewm(span=period, adjust=False).mean()
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1))).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    return _ma_recapture_core(close, period, extra_filter=None, ma=ma)
 
 
 def ma30_recapture_rising(df, period: int = 30):
-    """SMA30 Recapture + rising MA filter.
-    Only take recapture if the MA itself is rising (momentum confirmation).
-    """
+    """SMA30 Recapture + rising MA filter (momentum confirmation)."""
     close = df["close"]
     ma = close.rolling(period, min_periods=1).mean()
-    ma_rising = ma > ma.shift(1)
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & ma_rising).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    rising = ma > ma.shift(1)
+    return _ma_recapture_core(close, period, extra_filter=rising, ma=ma)
 
 
 def ma30_50_recapture(df):
-    """Recapture MA30 while price remains above MA50.
-    Combines short-term recapture with longer-term trend filter.
-    """
+    """Recapture MA30 while price remains above MA50 (longer-term trend gate)."""
     close = df["close"]
     ma30 = close.rolling(30, min_periods=1).mean()
     ma50 = close.rolling(50, min_periods=1).mean()
-    entry = ((close > ma30) & (close.shift(1) <= ma30.shift(1)) & (close > ma50)).astype(int)
-    exit_sig = (close < ma30).astype(int)   # exit on losing the short MA
-    return entry, exit_sig
+    gate = close > ma50
+    return _ma_recapture_core(close, period=30, extra_filter=gate, ma=ma30)
 
-
-# --- Volatility-aware MA recapture variants (per user request) ---
 
 def ma30_recapture_lowvol(df, period: int = 30, vol_window: int = 20):
-    """MA30 Recapture only in low-volatility conditions.
-    Uses realized volatility (std of returns). Signal is active only when
-    current vol is below its own recent median (quieter pullbacks often
-    more reliable for recapture continuation).
-    """
+    """MA30 Recapture only in low-volatility conditions (quieter pullbacks)."""
     close = df["close"]
-    ma = close.rolling(period, min_periods=1).mean()
     vol = realized_vol(close, vol_window)
     vol_median = vol.rolling(vol_window * 2, min_periods=vol_window).median()
     low_vol = vol < vol_median
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & low_vol).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    return _ma_recapture_core(close, period, extra_filter=low_vol)
 
 
 def ma30_recapture_vol_expand(df, period: int = 30, vol_window: int = 20):
-    """MA30 Recapture with expanding volatility filter.
-    Only take the signal when volatility is rising (recent vol > previous).
-    This tries to capture recaptures that are accompanied by increasing
-    participation/momentum.
-    """
+    """MA30 Recapture with expanding volatility filter (vol rising)."""
     close = df["close"]
-    ma = close.rolling(period, min_periods=1).mean()
     vol = realized_vol(close, vol_window)
-    vol_expanding = vol > vol.shift(1)
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & vol_expanding).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    expanding = vol > vol.shift(1)
+    return _ma_recapture_core(close, period, extra_filter=expanding)
+
 
 # --- Volume-aware MA recapture variants ---
 
 def ma30_recapture_high_volume(df, period: int = 30, vol_ma: int = 20):
-    """MA30 Recapture confirmed by above-average volume.
-    Entry: price recaptures MA30 AND volume > SMA(volume, 20).
-    This is a common volume-confirmation filter for breakout/recapture moves.
-    """
+    """MA30 Recapture confirmed by above-average volume."""
     close = df["close"]
     vol = df["volume"]
-    ma = close.rolling(period, min_periods=1).mean()
-    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma//2).mean()
+    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma // 2).mean()
     high_vol = vol > vol_ma_s
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & high_vol).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    return _ma_recapture_core(close, period, extra_filter=high_vol)
 
 
 def ma30_recapture_volume_surge(df, period: int = 30, vol_ma: int = 20, surge_mult: float = 1.5):
-    """MA30 Recapture with volume surge.
-    Only take the signal if volume on the recapture bar is at least surge_mult
-    times the recent average volume (default 1.5x).
-    """
+    """MA30 Recapture with volume surge (>= surge_mult x recent avg)."""
     close = df["close"]
     vol = df["volume"]
-    ma = close.rolling(period, min_periods=1).mean()
-    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma//2).mean()
+    vol_ma_s = vol.rolling(vol_ma, min_periods=vol_ma // 2).mean()
     surge = vol >= (vol_ma_s * surge_mult)
-    entry = ((close > ma) & (close.shift(1) <= ma.shift(1)) & surge).astype(int)
-    exit_sig = (close < ma).astype(int)
-    return entry, exit_sig
+    return _ma_recapture_core(close, period, extra_filter=surge)
+
 
 
 def get_regime_signals(rule_name: str, df: pd.DataFrame):

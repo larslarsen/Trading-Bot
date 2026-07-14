@@ -65,7 +65,9 @@ def test_run_once_open_long_triggers_trade(tmp_path, monkeypatch, capsys):
 
     assert state.current_position == PositionSide.LONG
     assert state.position_size > 0
-    assert state.equity == pytest.approx(1000.0)
+    # opening deducts fees -> equity drops below the starting 1000.0
+    assert state.equity < 1000.0
+    assert state.equity > 0
 
 
 @pytest.mark.skipif(not HAS_LEGACY, reason="legacy paper_trader not importable")

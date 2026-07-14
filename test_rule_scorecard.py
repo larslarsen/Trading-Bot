@@ -140,7 +140,7 @@ def sign_test_p(a_vals, b_vals):
 
 def main():
     data, dates = load_common(n_min=150)
-    train, step, oos = 40, 20, 20
+    train, step, oos = 60, 12, 12
     slices = []
     i = train
     while i + oos <= len(dates):

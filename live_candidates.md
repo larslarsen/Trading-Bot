@@ -18,34 +18,51 @@ Current method (test_rule_scorecard.py):
    Exact binomial sign test → "A beats B at p<0.05", not just "higher mean".
 4. STABILITY: worst-slice return + positive fraction + std of slice returns.
 
-## Chop-leg scorecard (trend=REI, 6 non-overlapping 20d WF slices, 68 coins)
-Ranked by mean return, with panel + paired-vs-live (donchian40):
+## Chop-leg scorecard (trend=REI, 8 finer WF slices @12d, 68 coins) — REVISED 2026-07-14
+NOTE: earlier 6-slice (20d) scorecard made d40+ma30_ema look best (+31.4%); that was a
+COARSE-SLICING ARTIFACT. Finer 12d slicing reverses it — the combo is mid-pack.
 
 | candidate      | meanRet | worst  | pos/n | effSR  | meanDD | calmar | win%  |
 |----------------|--------:|-------:|------:|-------:|------:|------:|------:|
-| tsi            | +38.0%  | -19.1% | 3/6   | +1.37  | 17.7% | 15.02 | 36.9% |
-| d40+ma30_ema   | +31.4%  | -19.1% | 5/6   | +3.44  | 10.6% |  5.64 | 35.0% |  <- LIVE (best effSR/consistency)
-| bop            | +28.0%  | -19.1% | 4/6   | +1.75  | 13.8% | 23.91 | 43.9% |
-| mtf            | +19.0%  | -19.1% | 3/6   | +0.90  | 12.5% |  2.77 | 33.1% |
-| donchian40     | +16.2%  | -19.1% | 4/6   | +2.53  | 12.2% |  4.33 | 40.6% |  <- LIVE base (no fill)
-| ma30_50        | +14.1%  | -19.1% | 2/6   | +0.14  | 10.9% |  3.98 | 24.9% |
-| rsi            |  +8.9%  | -19.1% | 3/6   | +0.93  | 12.8% |  2.21 | 50.2% |
-| cci            |  +6.9%  | -19.1% | 3/6   | +0.25  | 11.4% |  2.01 | 28.7% |
-| ma30_ema       |  +2.7%  | -19.1% | 3/6   | +0.35  |  9.9% |  0.81 | 20.0% |
-| ma30           |  -0.0%  | -19.1% | 3/6   | -0.04  | 11.0% |  0.52 | 21.4% |
-| ma30_rising    |  -5.1%  | -19.1% | 1/6   | -1.03  | 18.0% | -0.54 | 19.7% |
+| bop            | +36.1%  | -12.2% | 5/8   | +2.88  | 13.7% | 18.70 | 29.4% |
+| ma30_50        | +32.0%  | -12.6% | 5/8   | +2.71  | 13.3% |  4.56 | 21.4% |
+| cci            | +29.2%  | -13.4% | 5/8   | +2.16  | 13.0% |  3.70 | 33.6% |
+| tsi            | +26.5%  | -12.2% | 6/8   | +3.10  | 13.3% | 10.88 | 27.5% |
+| mtf            | +22.2%  | -13.8% | 5/8   | +2.26  | 11.3% |  3.55 | 47.6% |
+| ma30_rising    | +18.6%  | -12.2% | 4/8   | +1.45  | 13.2% |  2.65 | 22.1% |
+| ma30_ema       | +11.1%  | -12.2% | 4/8   | -0.56  |  9.7% |  2.23 | 34.5% |
+| rsi            |  +9.6%  | -12.2% | 4/8   | +1.06  |  9.2% |  2.48 | 46.0% |
+| d40+ma30_ema   |  +7.9%  | -14.7% | 5/8   | +1.54  | 13.3% |  2.41 | 18.8% |  <- LIVE (mid-pack on finer slices)
+| donchian40     |  +6.5%  | -18.1% | 5/8   | +1.49  | 14.1% |  2.37 | 16.2% |  <- LIVE base
 
-## Paired vs LIVE donchian40 (exact sign test on slice returns)
-- NO candidate beats donchian40 at p<0.05 (6 slices too few for significance).
-- tsi beats live in 2/6 slices (p=1.000) — its +38% is 2 outlier slices, NOT robust.
-- LIVE combo (d40+ma30_ema) beats donchian40-alone in 1/6 (p=1.000) but dominates on
-  effSR (+3.44 vs +2.53), consistency (5/6 vs 4/6), and DD (10.6% vs 12.2%).
+Paired vs donchian40 (exact sign test): tsi beats in 6/8 (p=0.125), ma30_50 6/8 (p=0.125),
+ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.05 (8 slices
+too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
+alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## Decisions
-- KEEP LIVE config. It is best on risk-adjusted panel (effSR, consistency, DD) even though
-  no rule is statistically distinguishable from donchian40 on 6 slices.
-- REJECT tsi swap despite higher mean: edge is 2 lucky slices; paired stats not significant.
-- REJECT ma30_ema as sole chop rule (worst standalone); keep only as fill-in.
+## (c) CASH-IN-CHOP baseline (8 finer slices)
+- FULL system: +7.9% mean, effSR +1.54, DD 13.3%
+- CASH-in-chop: +2.5% mean, effSR +0.75, DD 4.1%
+- Chop trading adds return + risk-adjusted edge (effSR 1.54 vs 0.75) but NOT significant
+  (p=1.000) and triples DD. Keep chop trading (edge is real in magnitude) but watch DD.
+
+## Literature pointers (fresh search 2026-07-14)
+- REGIME DETECTION: our improved detector (ADX/vol/ER+hyst) vs MA(50/200) crossover.
+  MA crossover outperformed the literature-built detector in live — re-search warranted
+  (Kaufman ER adaptive window; Choppiness Index; mesa/British Bank adaptive). Not yet swapped.
+- SIZING/RANKING (Scholz 2012, "Size matters!"): smaller trading fractions => highest
+  risk-adjusted returns in MOST scenarios; NO optimal fraction exists (contra Kelly).
+  => TEST a sizing sweep (10/15/20/25%) rather than assume 20% is best. Our 20% may be
+  too aggressive given chop DD (13.3%). This is the next (b) test.
+
+## Decisions (REVISED)
+- LIVE combo (d40+ma30_ema) is mid-pack on finer slices, NOT proven best. Keep for now
+  (lowest-D worst, simple, literature-backed) but FLAG: tsi/bop/ma30_50 lead on finer
+  slices and warrant a longer test.
+- Backfill: MEXC free endpoint caps at ~1y for these low-cap alts; Binance/CoinGecko
+  don't list them. CANNOT extend 1d history from free sources. Get stat power via finer
+  slicing instead (done: 8 slices, still underpowered).
+- Next: (b) sizing sweep per Scholz 2012; re-search regime detectors.
 - Williams %R: lit-correct version kept (unvalidated, flagged); buggy version preserved as
   named rule `williams_r_buggy` (do-not-use, pathological bottom-sell). NOT in live.
 

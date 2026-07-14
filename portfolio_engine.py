@@ -255,6 +255,10 @@ class PortfolioEngine:
     def halt(self, reason: str):
         self.halted = True
         self.halt_reason = reason
+        # Persist the halt if this instance has a save() (live subclasses do).
+        # The base engine (backtest replay) has no save() -> skip gracefully.
+        if hasattr(self, "save"):
+            self.save()
 
     # ---- vol target (optional) --------------------------------------------
     def vol_scale(self, lookback=None, target=None, min_scale=None, max_scale=None) -> float:

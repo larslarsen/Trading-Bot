@@ -60,6 +60,9 @@ class ExecutionState:
             }, f, indent=2)
 
     def record_trade(self, side, entry, exit_price, size, pnl, fees):
+        self.equity += pnl - fees
+        self.peak_equity = max(self.peak_equity, self.equity)
+        self.daily_pnl += pnl - fees
         trade = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "side": side.name,
@@ -71,9 +74,6 @@ class ExecutionState:
             "equity_after": self.equity,
         }
         self.trades.append(trade)
-        self.equity += pnl - fees
-        self.peak_equity = max(self.peak_equity, self.equity)
-        self.daily_pnl += pnl - fees
         self._log_trade(trade)
 
     def _log_trade(self, trade):

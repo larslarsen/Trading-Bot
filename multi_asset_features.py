@@ -23,15 +23,7 @@ def load_multi(path):
     return df
 
 
-def pivot_pair(df, symbol):
-    sub = df[df['symbol'] == symbol].copy()
-    sub = sub.sort_values('timestamp').reset_index(drop=True)
-    for l in LAGS:
-        sub[f'{symbol}_ret_{l}'] = sub['close'].pct_change(l)
-    return sub.set_index('timestamp')[[]]
-
-
-def make_cross_features(df_btc, df_multi):
+def make_cross_features(df_btc, df_multi) -> pd.DataFrame:
     if df_multi is None or df_multi.empty or 'symbol' not in df_multi.columns:
         return df_btc
     syms = sorted(df_multi['symbol'].unique())

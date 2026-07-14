@@ -358,6 +358,12 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return rei_signals(df)
     if rule in ("rsi", "rsi_signals"):
         return rsi_signals(df)
+    if rule in ("tsi", "tsi_signals"):
+        return tsi_signals(df)
+    if rule in ("bop", "bop_signals"):
+        return bop_signals(df)
+    if rule in ("mtf", "mtf_confirm", "ma_confirm"):
+        return mtf_confirm_signals(df)
     if rule in ("williams", "williams_r", "wr"):
         return williams_r_signals(df)
     if rule in ("williams_r_buggy", "williams_buggy", "wr_buggy"):

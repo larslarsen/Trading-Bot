@@ -53,6 +53,8 @@ execution_sweep_results.csv
 execution_state*.json
 *.log
 *.tmp
+*.bak
+.bak.*
 
 # IDE and editors
 .vscode/

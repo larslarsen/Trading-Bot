@@ -8,33 +8,14 @@ the live trader and the backtest replay use IDENTICAL execution math.
 """
 
 import json
+import fcntl
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
+from config import CONFIG
 from portfolio_engine import PortfolioEngine, EngineConfig, Position
-
-
-# ── CONFIG (kept here for the live trader; tune in one place) ─────────────
-CONFIG = EngineConfig(
-    initial_capital=10000.0,
-    max_daily_loss_pct=0.03,
-    max_drawdown_pct=0.20,
-    max_positions=5,
-    max_position_pct=0.20,
-    min_equity_to_trade=100.0,
-    flash_crash_bars=5,
-    flash_crash_pct=0.50,
-    extreme_move_pct=0.90,
-    cost_bps=8.0 / 10000.0,
-    slippage_bps=5.0 / 10000.0,
-    enable_vol_target=False,   # parity-vol target hook (off by default)
-    vol_lookback=20,
-    target_vol=0.15,
-    min_vol_scale=0.25,
-    max_vol_scale=1.5,
-)
 
 TRADE_JOURNAL = Path(__file__).parent / "trade_journal.json"
 STATE_FILE = Path(__file__).parent / "execution_state_multi.json"
@@ -59,11 +40,16 @@ class MultiPositionState(PortfolioEngine):
             self.load_state_dict(data)
 
     def save(self):
-        tmp = self._state_file.with_suffix(".json.tmp")
-        with open(tmp, "w") as f:
-            json.dump(self.to_state_dict(), f, indent=2, default=str)
-        # atomic replace
-        tmp.replace(self._state_file)
+        """Atomic + locked save so a second concurrent run can't corrupt state."""
+        with open(self._state_file, "a+") as lockf:
+            fcntl.flock(lockf, fcntl.LOCK_EX)
+            try:
+                tmp = self._state_file.with_suffix(".json.tmp")
+                with open(tmp, "w") as f:
+                    json.dump(self.to_state_dict(), f, indent=2, default=str)
+                tmp.replace(self._state_file)
+            finally:
+                fcntl.flock(lockf, fcntl.LOCK_UN)
 
     def _log_trade(self, trade):
         if self._journal_file.exists():

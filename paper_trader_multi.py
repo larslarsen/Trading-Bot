@@ -8,25 +8,20 @@ Long-only, hard cap 5 positions (ranked by signal strength), 20% equity/trade, 2
 Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET flag.
 """
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 print(f"\n=== paper_trader_multi run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===", flush=True)
 print('START paper_trader_multi.py', flush=True)
 import json
 from pathlib import Path
-from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
 
-from order_manager_multi import (
-    ENABLE_VOL_TARGET,
-    MultiPositionState,
-    MAX_POSITIONS,
-    MAX_DRAWDOWN_PCT,
-    MAX_POSITION_PCT,
-    MIN_EQUITY_TO_TRADE,
-    COST_BPS,
-    SLIPPAGE_BPS,
+from order_manager_multi import MultiPositionState
+from config import (
+    CONFIG, USE_IMPROVED_REGIME, USE_MA_REGIME, USE_HURST_REGIME,
+    HURST_WINDOW, HURST_THRESHOLD, TREND_RULE, CHOP_RULE,
+    USE_PARANOID_VOL_TARGET, VOL_TARGET, USE_ATR_TRAILING, ATR_PERIOD, ATR_MULT,
 )
 from engine import compute_live_regime, get_regime_signals
 
@@ -37,17 +32,12 @@ FETCH = True
 LOOKBACK = 40
 
 # === Paranoia mode (vol targeting) ===
-# Set USE_PARANOID_VOL_TARGET = True when you want to be more defensive.
+# Set USE_PARANOID_VOL_TARGET = True in config.py when you want to be more defensive.
 # It applies vol scaling *only* when the regime is "chop".
 # In "trend" regimes you get full position sizing (1.0 scale).
-USE_PARANOID_VOL_TARGET = False
-VOL_TARGET = 0.15
 
 # Hurst regime (literature-backed persistence filter)
 # H > 0.5 suggests persistent/trending behavior -> favor momentum rules
-USE_HURST_REGIME = False
-HURST_WINDOW = 60
-HURST_THRESHOLD = 0.5
 
 
 def fetch_latest(stem):
@@ -99,9 +89,9 @@ print(f'Loaded {len(prices)} coins')
 
 # Compute market regime from recent data
 # Use improved regime detector (literature-backed ADX + vol + Kaufman ER + hysteresis)
-# Set use_improved_regime=False to fall back to the original simple gate
-use_improved_regime = True  # always use improved regime detector
-USE_MA_REGIME = True  # Try friend suggestion: MA crossover (short > long) as regime filter
+# Set USE_IMPROVED_REGIME=False in config.py to fall back to the original simple gate
+use_improved_regime = USE_IMPROVED_REGIME  # always use improved regime detector
+USE_MA_REGIME = USE_MA_REGIME  # Try friend suggestion: MA crossover (short > long) as regime filter
 if USE_HURST_REGIME:
     from engine import hurst_regime, load_screened_universe
     # Build market close proxy for Hurst
@@ -138,8 +128,8 @@ elif use_improved_regime:
 else:
     regime = compute_live_regime(prices)
 
-trend_rule = "rei"          # Best from verification (REI-trend/Williams-chop) - stronger on recent OOS/WF
-chop_rule = "williams_r"   # Best performer in chop regime
+trend_rule = TREND_RULE          # Best from verification (REI-trend/Williams-chop) - stronger on recent OOS/WF
+chop_rule = CHOP_RULE   # Best performer in chop regime
 active_rule = trend_rule if regime == 'trend' else chop_rule
 # Available centralized rules include: ma30 / ma30_recapture (new), cci, rei, williams_r
 print(f'Regime: {regime} → using {active_rule} (improved={use_improved_regime}, ma={USE_MA_REGIME})')
@@ -153,7 +143,7 @@ if USE_PARANOID_VOL_TARGET:
         vol_scale_factor = state.vol_scale()
     else:
         vol_scale_factor = 1.0
-elif ENABLE_VOL_TARGET:
+elif CONFIG.enable_vol_target:
     vol_scale_factor = state.vol_scale()
 
 # Compute signals with the chosen rule + strength for ranking
@@ -200,10 +190,6 @@ for stem, df in prices.items():
 
 # Build active list: open on entry; keep if no exit (or re-evaluate on entry for simplicity)
 active = []
-for sym in list(state.positions.keys()):
-    # If we have an exit signal for current rule, we'll close below
-    pass
-
 for sym, sigs in raw_signals.items():
     if sigs['entry']:
         active.append((sym, sigs.get('strength', 0.0)))
@@ -218,7 +204,7 @@ for sym in list(state.positions.keys()):
         positions_to_close.append(sym)
 
 raw_active_count = len([s for s in raw_signals.values() if s.get('entry')])
-print(f'Active entry signals ({active_rule}): {raw_active_count} (ranked, taking top {MAX_POSITIONS} by strength)')
+print(f'Active entry signals ({active_rule}): {raw_active_count} (ranked, taking top {CONFIG.max_positions} by strength)')
 
 # Reconcile stale positions
 for sym in list(state.positions.keys()):
@@ -229,16 +215,27 @@ for sym in list(state.positions.keys()):
         print(f'Stale position {sym}: no price, closing at entry')
         state.close_position(sym, state.positions[sym].entry)
 
-# Circuit breaker check
-first_price = None
+# Reset TRANSIENT halts at the start of each daily run.
+# daily_loss / flash_crash are per-day conditions and must clear on the next bar;
+# only truly terminal halts (equity_too_low, max_drawdown) freeze the trader.
+if state.halted and state.halt_reason in ("daily_loss_limit", "flash_crash"):
+    print(f'Clearing transient halt: {state.halt_reason} (re-evaluating this run)')
+    state.halted = False
+    state.halt_reason = None
+
+# Daily bar start (resets daily pnl + flash window; measured in DAYS)
+ref_price = None
 for sym in list(state.positions.keys()) + (active[:1] if active else []):
     px_row = prices.get(sym)
     if px_row is not None:
-        first_price = float(px_row['close'].iloc[-1])
+        ref_price = float(px_row['close'].iloc[-1])
         break
+if ref_price is not None:
+    state.start_daily_bar(ref_price)
 
-if first_price is not None:
-    ok, reason = state.check_circuit_breakers(first_price)
+# Circuit breaker check
+if ref_price is not None:
+    ok, reason = state.check_circuit_breakers()
     if not ok:
         if state.halted and 'drawdown' in str(state.halt_reason):
             print(f'CIRCUIT BREAKER {reason}, flattening to cash')
@@ -253,41 +250,57 @@ if first_price is not None:
             state.save()
             exit(0)
 
-# Close positions no longer breaking out OR explicit exit from regime rule
+# Close positions only on an explicit EXIT signal from the active rule.
+# We do NOT close merely because today's entry signal is absent — that causes
+# churn (selling the day a breakout signal drops). A position is held until the
+# rule emits an exit, or until a circuit breaker forces a flatten.
 for sym in list(state.positions.keys()):
-    should_close = sym not in active
     if sym in raw_signals and raw_signals[sym].get('exit'):
-        should_close = True
-    if should_close:
         px_row = prices.get(sym)
         px = float(px_row['close'].iloc[-1]) if px_row is not None else None
         if px is None or px <= 0:
             continue
         state.close_position(sym, px)
-        print(f'CLOSE {sym} @ {px:.4f} (regime rule or no signal)')
+        print(f'CLOSE {sym} @ {px:.4f} (regime rule exit)')
+        continue
+
+    # Optional ATR trailing stop (trend-gated): exit if price closes below the
+    # trailing stop. This is the best clean exit variant from verification (~+14%
+    # on 90d OOS) but off by default.
+    if USE_ATR_TRAILING and regime == 'trend':
+        df = prices.get(sym)
+        if df is not None and len(df) >= ATR_PERIOD * 2:
+            from engine import atr_trailing_exit
+            try:
+                if int(atr_trailing_exit(df, ATR_PERIOD, ATR_MULT).iloc[-1]) == 1:
+                    px = float(df['close'].iloc[-1])
+                    state.close_position(sym, px)
+                    print(f'CLOSE {sym} @ {px:.4f} (ATR trailing stop)')
+            except Exception:
+                pass
 
 # Open new positions
 for sym in active:
     if sym in state.positions:
         continue
-    if len(state.positions) >= MAX_POSITIONS:
+    if len(state.positions) >= CONFIG.max_positions:
         break
     px_row = prices.get(sym)
     px = float(px_row['close'].iloc[-1]) if px_row is not None else None
     if px is None or px <= 0:
         continue
-    ok, reason = state.check_circuit_breakers(px)
+    ok, reason = state.check_circuit_breakers()
     if not ok:
         print(f'CIRCUIT BREAKER: {reason}, staying flat')
         break
-    size = state.equity * MAX_POSITION_PCT * vol_scale_factor
+    size = state.equity * CONFIG.max_position_pct * vol_scale_factor
     pos = state.open_position(sym, px, size)
     if pos:
         print(f'OPEN {sym} @ {px:.4f}, size=${size:.2f}')
 
 # Mark to market
 mtm_prices = {sym: float(df['close'].iloc[-1]) for sym, df in prices.items() if len(df)}
-eq = state.update_equity_from_mtm(mtm_prices)
+eq = state.mark_to_market(mtm_prices)
 current_dd = (state.peak_equity - eq) / state.peak_equity if state.peak_equity > 0 else 0
 state.equity_history.append(float(eq))
 if len(state.equity_history) > 365:
@@ -299,8 +312,8 @@ print(f'Peak: ${state.peak_equity:.2f}')
 print(f'Max DD: {state.max_dd:.2%}')
 print(f'Positions: {len(state.positions)}')
 
-if current_dd > MAX_DRAWDOWN_PCT:
-    print(f'Flattening: DD {current_dd:.2%} > {MAX_DRAWDOWN_PCT:.2%}')
+if current_dd > CONFIG.max_drawdown_pct:
+    print(f'Flattening: DD {current_dd:.2%} > {CONFIG.max_drawdown_pct:.2%}')
     state.flatten_all(mtm_prices)
     state.halt(f'live_drawdown_flatten_{pd.Timestamp.now().isoformat()}')
     state.save()

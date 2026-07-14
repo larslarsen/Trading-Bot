@@ -102,16 +102,7 @@ svc_status() {
 svc_logs() {
   local name=$1
   local lines=${2:-50}
-  if [[ "$name" == "paper_trader_multi" ]]; then
-    # Show the most recent daily log file
-    LATEST=$(ls -t "$LOG_DIR"/paper_trader_multi-*.log 2>/dev/null | head -1)
-    if [[ -n "$LATEST" ]]; then
-      echo "Showing: $LATEST"
-      tail -n "$lines" "$LATEST"
-    else
-      echo "No daily logs found for paper_trader_multi yet"
-    fi
-  elif [[ -f "$LOG_DIR/${name}.log" ]]; then
+  if [[ -f "$LOG_DIR/${name}.log" ]]; then
     tail -n "$lines" "$LOG_DIR/${name}.log"
   else
     echo "No log for $name"

@@ -393,6 +393,9 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return ma30_recapture_high_volume(df)
     if rule in ("ma30_recapture_volume_surge", "volume_surge_recapture"):
         return ma30_recapture_volume_surge(df)
+    # Bollinger Band Width Percentile (vol-regime rule)
+    if rule in ("bbwp", "bbwp_signals", "bband_width_pct"):
+        return bbwp_signals(df)
     # Hurst regime filter (H > 0.5 = trend)
     if rule in ("hurst_trend", "hurst"):
         # Use hurst_regime as a dynamic rule switch - caller usually pairs with regime_rule_map
@@ -430,6 +433,54 @@ def realized_vol(close: pd.Series, window: int = 20) -> pd.Series:
     """Simple realized volatility (std of returns)."""
     return close.pct_change().rolling(window, min_periods=5).std()
 
+
+def bb_width(close: pd.Series, period: int = 20, std_mult: float = 2.0) -> pd.Series:
+    """Bollinger Band width as fraction of the middle band: (upper - lower) / mid."""
+    sma = close.rolling(period).mean()
+    std = close.rolling(period).std()
+    upper = sma + std_mult * std
+    lower = sma - std_mult * std
+    return (upper - lower) / sma
+
+
+def bbwp(close: pd.Series, period: int = 20, std_mult: float = 2.0,
+         pct_lookback: int = 50, percentile: bool = True) -> pd.Series:
+    """Bollinger Band Width Percentile (BBWP).
+
+    BBWP = rolling percentile rank of the current BB width within its trailing
+    `pct_lookback` window. High BBWP (~1.0) = band EXPANDED (volatile / breakout /
+    trending regime); low BBWP (~0.0) = band SQUEEZED (calm / chop regime).
+
+    Literature: Bollinger Band Width squeeze is the classic vol-regime signal
+    (J. Bollinger; "squeeze" precedes expansions). BBWP percentile form (e.g.
+    as used in TTR's `BBands` + percentile rank) is a standard regime/vol filter.
+    """
+    width = bb_width(close, period=period, std_mult=std_mult)
+    if percentile:
+        return width.rolling(pct_lookback, min_periods=5).apply(
+            lambda x: (x[-1] >= x).mean(), raw=True
+        )
+    return width
+
+
+def bbwp_signals(df: pd.DataFrame, period: int = 20, std_mult: float = 2.0,
+                 pct_lookback: int = 50, enter_thr: float = 0.80,
+                 exit_thr: float = 0.20) -> tuple[pd.Series, pd.Series]:
+    """Directional BBWP rule: enter LONG when BB width is EXPANDED (BBWP > enter_thr,
+    i.e. volatility breakout / trend regime) AND price breaks above the upper band;
+    exit when BBWP contracts below exit_thr (squeeze returns) OR price < lower band.
+
+    This makes BBWP a volatility-gate on a Bollinger breakout, not a bare breakout.
+    """
+    close = df["close"]
+    sma = close.rolling(period).mean()
+    std = close.rolling(period).std()
+    upper = sma + std_mult * std
+    lower = sma - std_mult * std
+    wp = bbwp(close, period=period, std_mult=std_mult, pct_lookback=pct_lookback)
+    entry = ((close > upper) & (wp > enter_thr)).astype(int)
+    exit_sig = ((close < lower) | (wp < exit_thr)).astype(int)
+    return entry, exit_sig
 
 # --- Portfolio-level Volatility Targeting (literature style: Harvey 2018, Moreira & Muir 2017, Barroso & Santa-Clara 2015) ---
 def compute_vol_scale(ret_history: list[float], target_vol: float = 0.15, lookback: int = 20, 
@@ -646,6 +697,14 @@ def compute_regime(
             return "trend"
         adaptive_thr = er_threshold * (1.0 + 2.0 * vol)
         return "trend" if er >= adaptive_thr else "chop"
+
+    if method == "bbwp":
+        # Bollinger Band Width Percentile regime filter: band EXPANDED (BBWP high) =>
+        # volatile/breakout/trending regime => trend; SQUEEZED (BBWP low) => chop.
+        wp = float(bbwp(c, period=20, std_mult=2.0, pct_lookback=50).iloc[cur])
+        if pd.isna(wp):
+            return "trend"
+        return "chop" if wp < 0.20 else "trend"
 
     # Core rule-based regime (improved)
     is_trending = (a >= adx_threshold) and (er >= er_threshold) and (vol <= vol_threshold)

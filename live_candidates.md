@@ -40,7 +40,25 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## VOL-TARGETING test (Hurst/AQR, 2026-07-14) — DEEP 66 slices — FAILED
+## BBWP (Bollinger Band Width Percentile) — 2026-07-14, DEEP 66 slices
+Two uses tested: (1) directional chop entry (vol-gated BB breakout), (2) detector
+(trend when band expanded, chop when squeezed).
+
+| config              | meanRet | effSR | meanDD | Calmar |
+| d40|bbwp-det          | +10.7%  | +0.84 | 10.9% | 2.44  | <- BBWP DETECTOR, best Calmar
+| LIVE(d40|rule)       |  +9.9%  | +0.76 | 11.2% | 2.26  | <- current
+| bbwp-entry|bbwp-det  |  +9.2%  | +0.60 |  9.1% | 1.97  |
+| bbwp-entry|rule      |  +8.3%  | +0.49 |  7.9% | 2.14  |
+
+Paired vs LIVE: d40|bbwp-det +0.9 19/31 p=0.281 (NOT sig, but best Calmar 2.44>2.26);
+bbwp-entry (directional) WORSE (p=1.000). BBWP NOT degenerate (unlike choppiness).
+
+DECISION: BBWP as DETECTOR is the ONLY candidate this session that IMPROVED Calmar
+over live (2.44 vs 2.26), beating in 19/31 slices. Directionally positive but
+p=0.281 (unproven). BBWP as directional entry is NOT better than donchian40.
+Keep donchian40 as chop entry. BBWP-detector is a WATCH candidate (best Calmar,
+unproven) — do NOT swap live without further validation (Kraken cross-check pending).
+
 Per-asset vol targeting (size = 20% * target_vol/asset_vol, clip 0.25-1.5) vs fixed 20%.
 
 | config   | meanRet | effSR | meanDD | Calmar |

@@ -47,7 +47,10 @@ VENV_PY         = REPO / '.venv' / 'bin' / 'python'
 # Timeframes to collect. 1h/4h are the intraday TFs that cannot be resampled
 # from 1d and are the entire reason for this daemon. 1d is maintained too (cheap,
 # closes any gaps in the daily series). 8h exists only on BloFin.
-TIMEFRAMES       = ['1h', '4h', '1d']
+# 5m added for forward accumulation (deep 5m backfill is infeasible: BloFin
+# ignores `since`; MEXC 5m over 2yr would be ~5hrs of calls). So 5m compounds
+# from today and becomes testable in a few months.
+TIMEFRAMES       = ['5m', '1h', '4h', '1d']
 BLOFIN_EXTRA_TF  = ['8h']
 
 CYCLE_INTERVAL   = 900      # seconds between full sweeps (15 min)

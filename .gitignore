@@ -102,3 +102,8 @@ scripts/
 # Keep useful regime tools
 !regime_backtest.py
 !regime*.py
+
+# Regenerated experiment/test outputs (reproduced by the test scripts; not source)
+*_results.json
+*_sweep_results.json
+*regime*_results.json

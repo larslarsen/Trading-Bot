@@ -968,12 +968,11 @@ def simulate_portfolio(
     sk = float(np.nan_to_num(pd.Series(ret_arr).skew(), nan=0.0))
     ku = float(np.nan_to_num(pd.Series(ret_arr).kurtosis(), nan=0.0)) + 3.0
     T = max(2, len(ret_arr))
-    try:
-        dsr = deflated_sharpe_ratio(sharpe, int(use_trials), T, skew=sk, kurt=ku)
-        psr = probabilistic_sharpe_ratio(sharpe, benchmark_sr=0.0, T=T, skew=sk, kurt=ku)
-    except Exception:
-        dsr = 0.5 if sharpe > 0 else 0.0
-        psr = 0.5 if sharpe > 0 else 0.0
+    # DSR / PSR (Bailey & López de Prado 2014). Both helpers are NaN/zero
+    # guarded internally (np.nan_to_num + sqrt(max(1e-12,...))), so they cannot
+    # raise on degenerate inputs -> no try/except, no misleading 0.5 fallback.
+    dsr = deflated_sharpe_ratio(sharpe, int(use_trials), T, skew=sk, kurt=ku)
+    psr = probabilistic_sharpe_ratio(sharpe, benchmark_sr=0.0, T=T, skew=sk, kurt=ku)
     res["dsr"] = round(dsr, 3)
     res["psr"] = round(psr, 3)
     res["n_trials"] = int(use_trials)

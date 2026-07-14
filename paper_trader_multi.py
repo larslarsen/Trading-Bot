@@ -25,6 +25,10 @@ from config import (
 )
 from engine import compute_live_regime, get_regime_signals
 
+def _col(df: pd.DataFrame, name: str) -> pd.Series:
+    """Extract a price column as a Series sharing ``df``'s index."""
+    return pd.Series(df[name].values, index=df.index)
+
 ROOT = Path('data')
 OUT = Path('backtest_output')
 INITIAL = 10000.0
@@ -161,9 +165,9 @@ for stem, df in prices.items():
         strength = 0.0
         if active_rule == "williams_r":
             # Williams %R strength: higher = more oversold (wr is negative, e.g. -95 is stronger than -82)
-            high = pd.Series(df["high"].values, index=df.index)
-            low = pd.Series(df["low"].values, index=df.index)
-            close = pd.Series(df["close"].values, index=df.index)
+            high = _col(df, "high")
+            low = _col(df, "low")
+            close = _col(df, "close")
             period = 14
             highest = high.rolling(period, min_periods=1).max()
             lowest = low.rolling(period, min_periods=1).min()
@@ -174,9 +178,9 @@ for stem, df in prices.items():
             strength = (-last_wr) + max(0.0, wr_diff * 2.0)
         elif active_rule == "rei":
             # REI strength: higher positive rei is better
-            close = pd.Series(df["close"].values, index=df.index)
-            high = pd.Series(df["high"].values, index=df.index)
-            low = pd.Series(df["low"].values, index=df.index)
+            close = _col(df, "close")
+            high = _col(df, "high")
+            low = _col(df, "low")
             up_move = high - high.shift(1)
             down_move = low.shift(1) - low
             up = up_move.where((up_move > 0) & (up_move > down_move), 0).fillna(0)
@@ -188,8 +192,8 @@ for stem, df in prices.items():
             strength = last_rei + max(0.0, rei_diff * 0.5)
         elif active_rule == "donchian40":
             # Donchian-40 strength: how far close is above the 40d high (breakout distance %)
-            high = pd.Series(df["high"].values, index=df.index)
-            close = pd.Series(df["close"].values, index=df.index)
+            high = _col(df, "high")
+            close = _col(df, "close")
             upper = high.rolling(40, min_periods=1).max().shift(1)
             strength = float(((close.iloc[-1] - upper.iloc[-1]) / (upper.iloc[-1] + 1e-12)) * 100) if len(close) > 1 else 0.0
         else:
@@ -220,7 +224,7 @@ if regime == 'chop' and not active and SECONDARY_CHOP_RULE:
             entry, exit_sig = get_regime_signals(SECONDARY_CHOP_RULE, df)
             last_entry = int(entry.iloc[-1]) if len(entry) > 0 else 0
             last_exit = int(exit_sig.iloc[-1]) if len(exit_sig) > 0 else 0
-            close = pd.Series(df["close"].values, index=df.index)
+            close = _col(df, "close")
             ma = close.ewm(span=30, adjust=False).mean()
             strength = float(((close.iloc[-1] - ma.iloc[-1]) / (ma.iloc[-1] + 1e-12)) * 100)
             raw_signals[stem] = {'entry': last_entry, 'exit': last_exit, 'strength': strength}
@@ -378,5 +382,6 @@ if 'prices' in dir() and len(prices) > 0:
                 print("\n=== Regime quality for this run ===")
                 print_regime_stats(stats)
     except Exception as e:
-        pass  # silent in normal runs
+        # Regime-stats report is optional; log failures instead of swallowing.
+        print(f'WARN regime-stats report failed: {e!r}')
 

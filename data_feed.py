@@ -7,6 +7,7 @@ Fetches latest OHLCV, merges with local history, and emits rolling windows.
 import ccxt
 import pandas as pd
 import time
+import fcntl
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,7 +52,14 @@ def append_to_history(new_bars):
     else:
         combined = new_bars[cols].copy()
 
-    combined.to_csv(HISTORY_CSV, index=False)
+    # Atomic write: temp file + fsync + rename, guarded by a shared flock so a
+    # concurrent reader (model_server.compute_features_from_history) can never
+    # observe a half-written frame (F2 cross-process CSV race).
+    tmp = HISTORY_CSV.with_suffix('.csv.tmp')
+    combined.to_csv(tmp, index=False)
+    with open(HISTORY_CSV, 'a') as lockf:
+        fcntl.flock(lockf, fcntl.LOCK_EX)
+        tmp.replace(HISTORY_CSV)
     return combined
 
 

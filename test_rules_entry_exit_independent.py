@@ -48,8 +48,8 @@ TRAIN, STEP, OOS = 60, 12, 12
 
 
 # ---- universe + slice helpers (mirror test_rule_scorecard) -----------------
-def load_common(n_min=150):
-    cd = load_screened_universe(min_bars=n_min)
+def load_common(n_min=150, as_of=None):
+    cd = load_screened_universe(min_bars=n_min, as_of=as_of)
     data = {s: d.set_index("ts").sort_index() for s, d in cd.items()}
     idx = None
     for d in data.values():
@@ -130,12 +130,17 @@ def sign_test_p(a, b):
 
 
 def main():
-    data, dates = load_common(n_min=150)
+    PIT = True  # point-in-time universe (survivorship-corrected)
+    # Load survivor set once just to get the date axis + slice starts.
+    data0, dates = load_common(n_min=150)
     slices = []
     i = TRAIN
     while i + OOS <= len(dates):
         slices.append(dates[i:i + OOS]); i += STEP
-    print(f"INDEPENDENT entry/exit test: {len(CORE)} rules, {len(slices)} WF slices, {len(data)} coins\n")
+    as_of = str(slices[0][0].date()) if PIT and slices else None
+    data, dates = load_common(n_min=150, as_of=as_of) if PIT else data0
+    mode = "PIT (as-of %s)" % as_of if PIT else "survivor"
+    print(f"INDEPENDENT entry/exit test: {len(CORE)} rules, {len(slices)} WF slices, {len(data)} coins, mode={mode}\n")
 
     regimes = compute_regimes(data, dates)
     price = price_panel(data, dates)

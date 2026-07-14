@@ -1059,13 +1059,34 @@ def simulate_portfolio(
     return res
 
 
-def load_screened_universe(min_bars: int = 60, start_date: str = '2025-01-01', end_date: str = '2026-07-12'):
-    """Load screened altcoin data into {stem: df} dict. Used by both backtests and live."""
+def load_screened_universe(min_bars: int = 60, start_date: str = '2025-01-01', end_date: str = '2026-07-12', as_of: str = None):
+    """Load screened altcoin data into {stem: df} dict. Used by both backtests and live.
+
+    as_of: optional 'YYYY-MM-DD' (or filename-parseable) point-in-time cutoff.
+      When given, uses the most recent screen CSV *dated on or before* as_of
+      instead of the latest file. This removes survivorship bias: a backtest
+      slice uses the universe that actually existed then, not today's survivors.
+      Default (None) = latest screen = live behavior (unchanged).
+    """
     from pathlib import Path
     import pandas as pd
+    import re
     ROOT = Path('data')
     OUT = Path('backtest_output')
-    screen = pd.read_csv(sorted(OUT.glob('screen_liqu_idio_*.csv'))[-1])
+    screen_files = sorted(OUT.glob('screen_liqu_idio_*.csv'))
+    if not screen_files:
+        raise FileNotFoundError("no screen_liqu_idio_*.csv found")
+    if as_of is not None:
+        # parse 'YYYYMMDD' from each filename; keep those <= as_of date
+        as_of_d = pd.Timestamp(as_of).date()
+        def _fname_date(p):
+            m = re.search(r'(\d{8})', p.name)
+            return pd.Timestamp(m.group(1)).date() if m else None
+        eligible = [p for p in screen_files if (lambda d: d is not None and d <= as_of_d)(_fname_date(p))]
+        screen_path = eligible[-1] if eligible else screen_files[0]
+    else:
+        screen_path = screen_files[-1]
+    screen = pd.read_csv(screen_path)
     screen = screen[screen.tier.isin(['large', 'mid', 'tail'])]
     coin_data = {}
     seen = set()

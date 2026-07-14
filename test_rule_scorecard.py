@@ -43,8 +43,8 @@ CANDIDATES = [
 ]
 
 
-def load_common(n_min=150):
-    cd = load_screened_universe(min_bars=n_min)
+def load_common(n_min=150, as_of=None):
+    cd = load_screened_universe(min_bars=n_min, as_of=as_of)
     data = {s: d.set_index("ts").sort_index() for s, d in cd.items()}
     idx = None
     for d in data.values():
@@ -141,18 +141,25 @@ def sign_test_p(a_vals, b_vals):
 
 
 def main():
-    data, dates = load_common(n_min=150)
+    # PIT (point-in-time) mode: TRUE removes survivorship bias by building each
+    # WF slice's universe from the screen as-of that slice's START date, not
+    # today's survivor list. This is the literature-correct methodology.
+    PIT = True
+    data0, dates = load_common(n_min=150)   # full survivor set, only for the date axis
     train, step, oos = 60, 12, 12
     slices = []
     i = train
     while i + oos <= len(dates):
         slices.append(dates[i:i + oos]); i += step
-    print(f"UPGRADED rule scorecard: {len(CANDIDATES)} candidates, {len(slices)} WF slices, {len(data)} coins\n")
+    mode = "PIT (point-in-time, survivorship-corrected)" if PIT else "survivor (today's list)"
+    print(f"UPGRADED rule scorecard: {len(CANDIDATES)} candidates, {len(slices)} WF slices, mode={mode}\n")
     res = {c[0]: [] for c in CANDIDATES}
     for cname, kind in CANDIDATES:
         combo = (kind == "combo")
         chop_rule = "donchian40" if combo else cname
         for seg in slices:
+            # Per-slice PIT universe: screen as-of the slice's first day.
+            data, _ = load_common(n_min=150, as_of=str(seg[0].date())) if PIT else (data0, dates)
             out = run_strategy(data, seg, chop_rule, combo=combo)
             res[cname].append(out)
     # Per-candidate aggregate table

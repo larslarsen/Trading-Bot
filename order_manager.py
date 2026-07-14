@@ -127,10 +127,14 @@ class ExecutionState:
         self.last_bar_prices = []
         self.save()
 
-    def position_sizing(self, signal_confidence):
-        """Size position: confidence × max_position, capped."""
-        base_size = self.equity * MAX_POSITION_PCT
-        return min(base_size, self.equity * 0.25)
+    def position_sizing(self) -> float:
+        """Position size as a fraction of equity (MAX_POSITION_PCT).
+
+        Confidence-weighted sizing was removed: the param was never wired to a
+        signal and the 0.25 equity cap was always looser than MAX_POSITION_PCT,
+        so this returns the flat cap unambiguously.
+        """
+        return self.equity * MAX_POSITION_PCT
 
 
 def simulate_fill(side, price, slippage_bps=0.0005, fee_bps=0.0005):

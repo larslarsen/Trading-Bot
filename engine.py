@@ -43,9 +43,9 @@ def default_regime(close_market: pd.Series, day_index: int, adx_threshold: float
 # -----------------------------
 # Rule: Donchian breakout
 # -----------------------------
-def donchian_signal(high: pd.Series, low: pd.Series, close: pd.Series, lookback: int) -> pd.Series:
-    """Return long signal series: 1 when close > lookback-high shifted by 1, else 0."""
-    don_high = high.rolling(lookback).max().shift(1)
+def donchian_signal(high: pd.Series, low: pd.Series, close: pd.Series, lookback: int = 40) -> pd.Series:
+    """Return long entry signal series: 1 when close > `lookback`-day highest high (shifted 1)."""
+    don_high = high.rolling(lookback, min_periods=1).max().shift(1)
     return (close > don_high).astype(int)
 
 # --- Regime signals centralized from research (CCI/REI/Williams %R) ---
@@ -359,7 +359,12 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
     if rule in ("rsi", "rsi_signals"):
         return rsi_signals(df)
     if rule in ("donchian40", "d40", "donchian"):
-        return donchian_signal(df["high"], df["low"], df["close"], lookback=40)
+        # donchian_signal returns only the entry series; build the matching exit
+        # (close below lookback-low) so it satisfies the (entry, exit) contract.
+        entry = donchian_signal(df["high"], df["low"], df["close"], lookback=40)
+        don_low = df["low"].rolling(40, min_periods=1).min().shift(1)
+        exit_sig = (df["close"] < don_low).astype(int)
+        return entry, exit_sig
     if rule in ("tsi", "tsi_signals"):
         return tsi_signals(df)
     if rule in ("bop", "bop_signals"):

@@ -46,7 +46,11 @@ class MultiPositionState(PortfolioEngine):
             try:
                 tmp = self._state_file.with_suffix(".json.tmp")
                 with open(tmp, "w") as f:
-                    json.dump(self.to_state_dict(), f, indent=2, default=str)
+                    # to_state_dict() returns only JSON-native types (float/int/
+                    # bool/list/dict); drop default=str so a genuinely
+                    # non-serializable field raises instead of being silently
+                    # stringified into persisted state.
+                    json.dump(self.to_state_dict(), f, indent=2)
                 tmp.replace(self._state_file)
             finally:
                 fcntl.flock(lockf, fcntl.LOCK_UN)

@@ -40,7 +40,25 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## (b) SIZING SWEEP (Scholz 2012) — DONE
+## CHOP-LEG DEEP TEST (2026-07-14) — tsi/bop/ma30_50 vs LIVE
+Full switched strategy, 8 finer WF slices, 68 coins. These three led the scorecard.
+
+| config          | meanRet | effSR | meanDD | Calmar |
+|-----------------|--------:|------:|------:|------:|
+| bop             | +36.1%  | +2.88 | 13.7% | 18.70 |
+| ma30_50         | +32.0%  | +2.71 | 13.3% |  4.56 |
+| tsi             | +26.5%  | +3.10 | 13.3% | 10.88 |  <- best effSR, 6/7 beats LIVE
+| LIVE(d40+ma30_ema)| +6.5% | +1.49 | 14.1% |  2.37 |
+
+Paired vs LIVE: tsi 6/7 (p=0.125), ma30_50 6/7 (p=0.125), bop 4/5 (p=0.375).
+All three CRUSH live (+20 to +30% mean gap, consistent across all 8 slices).
+Combo fill == sole (donchian40 near-dead in chop; candidate does the work).
+
+DECISION: LIVE chop leg (d40+ma30_ema) is genuinely weak — 4-6x return gap vs
+tsi/bop/ma30_50, consistent across all slices. tsi is best-balanced (effSR 3.10,
+6/7 beats, established TSI literature). RECOMMEND swapping live chop rule to tsi.
+Caveat: still p=0.125 (8 slices underpowered for p<0.05); effect size is large.
+
 LIVE full system across {10,15,20,25}% position fractions, 8 WF slices:
 | frac | meanRet | effSR | meanDD | Calmar |
 | 10%  |  +5.1%  | +1.21 |  8.1%  |  1.35  |

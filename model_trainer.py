@@ -24,6 +24,14 @@ from data_feed import HISTORY_CSV
 import warnings
 warnings.filterwarnings("ignore")
 
+# Parallelism: prefer the project's hardware setting (config.N_JOBS), which
+# honors the TRADING_BOT_CORES env var. Fall back to leaving one core free if
+# config isn't importable (e.g. standalone run outside the package).
+try:
+    from config import N_JOBS as _N_JOBS
+except Exception:
+    _N_JOBS = max(1, (os.cpu_count() or 8) // 2 - 1)
+
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_DIR.mkdir(exist_ok=True)
 METRICS_FILE = MODEL_DIR / "latest_metrics.json"
@@ -104,7 +112,7 @@ def train_and_save():
         objective="multi:softmax", num_class=3,
         max_depth=MAX_DEPTH, learning_rate=0.05, n_estimators=N_TREES,
         subsample=0.8, colsample_bytree=0.8,
-        reg_alpha=0.1, reg_lambda=1.0, n_jobs=6,
+        reg_alpha=0.1, reg_lambda=1.0, n_jobs=_N_JOBS,
         random_state=42, early_stopping_rounds=30,
         eval_metric="mlogloss", class_weight="balanced",
     )

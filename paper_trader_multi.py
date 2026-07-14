@@ -53,7 +53,12 @@ def fetch_latest(stem):
             raw = json.load(r)
         if not raw:
             return None
-        k = raw[-1]
+        # Use raw[-2], NOT raw[-1]: MEXC's 1d klines return the *currently
+        # forming* UTC daily bar as the last element. The signal must be
+        # computed on a COMPLETED daily close (no lookahead) — QuantPedia's
+        # D1H1 template applies the daily signal only "after the candle
+        # closes". raw[-2] is the last bar that closed at 00:00 UTC.
+        k = raw[-2]
         return {
             'ts': pd.to_datetime(int(k[0]), unit='ms', utc=True).tz_localize(None),
             'open': float(k[1]),

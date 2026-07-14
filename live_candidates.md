@@ -40,7 +40,21 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## REGIME DETECTOR on DEEP universe (2026-07-14) — 66 WF slices, 9 deep majors
+## VOL-TARGETING test (Hurst/AQR, 2026-07-14) — DEEP 66 slices — FAILED
+Per-asset vol targeting (size = 20% * target_vol/asset_vol, clip 0.25-1.5) vs fixed 20%.
+
+| config   | meanRet | effSR | meanDD | Calmar |
+| fixed    |  +9.9%  | +0.76 | 11.2% | 2.26  | <- current, BEST
+| VT@10/15/20% | +2.6% | +0.69 | 3.2% | 1.88 |
+
+Paired vs fixed: Δmean -7.2, 26/53, p=1.000. VT CUTS return -74% for only -8pp DD.
+Calmar FELL 2.26 -> 1.88. FALSIFIED.
+
+WHY: the regime detector already manages vol (sits flat in chop), so VT mostly
+dampens the trend exposure that earns return, without proportional DD relief. AQR's
+VT win is for naive trend-followers without regime gating. On our regime-gated system,
+fixed 20% is better calibrated. DO NOT enable vol_target.
+
 Same full strategy, swap ONLY detector method.
 
 | detector    | meanRet | effSR | meanDD | Calmar |

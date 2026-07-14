@@ -1,14 +1,21 @@
-# CURRENT PRODUCTION FOCUS (as of 2026-07)
+# CURRENT PRODUCTION FOCUS (as of 2026-07-14)
 
-Core: altcoin daily regime-based long-only rule system (REI in trend / Williams in chop)
-- Centralized in engine.py (donchian, cci, rei, will, chandelier/atr trailing exits)
-- paper_trader_multi.py + order_manager_multi.py for execution (5 pos, ATR trail flag, vol target flag)
-- Strict causal paper_replay_oos.py + rule_fair_compare (DSR/PSR/SPA)
-- Verified: ATR 14/2.0 trail (trend gated) gives lift on 90d OOS vs no-trail baseline.
+Core: altcoin daily regime-based long-only rule system.
+- FINAL LIVE CONFIG: trend = REI + ATR trailing (14/2.0, trend-gated); chop = donchian40
+  (40d breakout) primary + ma30_ema recapture fill-in when donchian is silent.
+- Centralized in engine.py (donchian, cci, rei, williams_r [lit-correct + buggy-named],
+  tsi, rsi, bop, mtf, ma30 recapture family, chandelier/atr trailing exits).
+- paper_trader_multi.py + order_manager_multi.py for execution (5 pos, ATR trail, vol-target flag).
+- Strict causal walk-forward (test_rule_scorecard.py): full entry+exit strategy via shared
+  PortfolioEngine, PANEL metrics (ret/effSR/DD/calmar/win%), PAIRED exact sign test.
 
-Tests: green after sync.
-See live_candidates.md for current rules and params.
-Previous BTC ML work is archived in spirit; current is simple falsifiable rules + regime.
+Verified: ATR trailing (trend-gated) gives lift on 90d OOS vs no-trail. donchian40+ma30_ema
+fill beats donchian40-alone on effSR/consistency/DD (5/6 positive slices, +31.4% mean).
+No chop rule is statistically distinguishable from donchian40 on 6 WF slices (data too short).
+
+Tests: green (35 passed, 4 skipped). Live trader RUNNING on final config.
+See live_candidates.md for the full scorecard and decisions.
+Previous BTC ML work is archived; current is simple falsifiable rules + regime.
 
 ---
 # Roadmap — BTC/USDT ML Trading Bot

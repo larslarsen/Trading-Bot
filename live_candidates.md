@@ -1,49 +1,54 @@
-# Live Candidate Summary
-Generated: 2026-07-12
+# Live Candidate Summary (UPDATED 2026-07-14)
 
-## Baseline
-d40 Donchian — full-history penalized effective Sharpe: ~0.57
+## FINAL LIVE CONFIG (validated, running)
+- Trend leg: REI + ATR trailing (14/2.0, trend-gated) — walk-forward validated lift.
+- Chop leg: **donchian40 (primary, 40d breakout) + ma30_ema recapture (fill-in when donchian silent)**.
+- Regime: improved detector (ADX/vol/ER + hysteresis) + MA crossover (50/200).
+- Risk: 5 positions, 20% sizing, 20% DD halt, $100 floor, 3% daily loss limit.
+- Sizing base = stable capital base (not declining equity).
 
-## Top Rule Families (full-history OOS)
-Selected by penalized effective Sharpe, 50bps-robust, cap-5 portfolio.
+## How rules are now compared (methodology, fixed 2026-07-14)
+Earlier we ranked rules on ENTRY quality only (signal separation) — wrong, it hid bad
+exits. Then full entry+exit walk-forward on return% alone — better but no statistical teeth.
+Current method (test_rule_scorecard.py):
+1. FULL STRATEGY: each rule runs its own entry+exit via shared PortfolioEngine (live math).
+2. PANEL per walk-forward slice: ret%, exposure-adjusted Sharpe (effSR), maxDD%, Calmar,
+   win%, trades — not just return.
+3. PAIRED statistics: each slice is the same market period, so rule differences are paired.
+   Exact binomial sign test → "A beats B at p<0.05", not just "higher mean".
+4. STABILITY: worst-slice return + positive fraction + std of slice returns.
 
-1. CCI — penalty 0.84, eff Sharpe 4.85, DD 35.6%, 370 trades
-2. REI — penalty 0.76, eff Sharpe 4.39, DD 19.0%, 354 trades
-3. TSI — penalty 0.66, eff Sharpe ~4.0, DD ~38%, ~445 trades
-4. BOP — penalty 0.56, eff Sharpe ~3.2, DD ~38%, ~445 trades
-5. MTF confirm — penalty 0.55, eff Sharpe ~3.1, DD ~16%, ~283 trades
+## Chop-leg scorecard (trend=REI, 6 non-overlapping 20d WF slices, 68 coins)
+Ranked by mean return, with panel + paired-vs-live (donchian40):
 
-* Williams %R — penalty ~0.70, eff Sharpe ~2.9, DD ~18%, ~214 trades
-* ROC, Ichimoku, TRIX, Price-Volume div, RVI — secondary candidates
+| candidate      | meanRet | worst  | pos/n | effSR  | meanDD | calmar | win%  |
+|----------------|--------:|-------:|------:|-------:|------:|------:|------:|
+| tsi            | +38.0%  | -19.1% | 3/6   | +1.37  | 17.7% | 15.02 | 36.9% |
+| d40+ma30_ema   | +31.4%  | -19.1% | 5/6   | +3.44  | 10.6% |  5.64 | 35.0% |  <- LIVE (best effSR/consistency)
+| bop            | +28.0%  | -19.1% | 4/6   | +1.75  | 13.8% | 23.91 | 43.9% |
+| mtf            | +19.0%  | -19.1% | 3/6   | +0.90  | 12.5% |  2.77 | 33.1% |
+| donchian40     | +16.2%  | -19.1% | 4/6   | +2.53  | 12.2% |  4.33 | 40.6% |  <- LIVE base (no fill)
+| ma30_50        | +14.1%  | -19.1% | 2/6   | +0.14  | 10.9% |  3.98 | 24.9% |
+| rsi            |  +8.9%  | -19.1% | 3/6   | +0.93  | 12.8% |  2.21 | 50.2% |
+| cci            |  +6.9%  | -19.1% | 3/6   | +0.25  | 11.4% |  2.01 | 28.7% |
+| ma30_ema       |  +2.7%  | -19.1% | 3/6   | +0.35  |  9.9% |  0.81 | 20.0% |
+| ma30           |  -0.0%  | -19.1% | 3/6   | -0.04  | 11.0% |  0.52 | 21.4% |
+| ma30_rising    |  -5.1%  | -19.1% | 1/6   | -1.03  | 18.0% | -0.54 | 19.7% |
 
-All above passed 50bps cost sweep.
+## Paired vs LIVE donchian40 (exact sign test on slice returns)
+- NO candidate beats donchian40 at p<0.05 (6 slices too few for significance).
+- tsi beats live in 2/6 slices (p=1.000) — its +38% is 2 outlier slices, NOT robust.
+- LIVE combo (d40+ma30_ema) beats donchian40-alone in 1/6 (p=1.000) but dominates on
+  effSR (+3.44 vs +2.53), consistency (5/6 vs 4/6), and DD (10.6% vs 12.2%).
 
-## Regime Switcher (approved config)
-- trend: CCI or REI
-- chop: Williams %R
-- gate: default ADX/volatility filter from `engine.py` (`default_regime`)
-- cap: 5 positions, 20% equity/trade
-- risk: 20% DD halt, $100 floor, 3% daily loss limit
+## Decisions
+- KEEP LIVE config. It is best on risk-adjusted panel (effSR, consistency, DD) even though
+  no rule is statistically distinguishable from donchian40 on 6 slices.
+- REJECT tsi swap despite higher mean: edge is 2 lucky slices; paired stats not significant.
+- REJECT ma30_ema as sole chop rule (worst standalone); keep only as fill-in.
+- Williams %R: lit-correct version kept (unvalidated, flagged); buggy version preserved as
+  named rule `williams_r_buggy` (do-not-use, pathological bottom-sell). NOT in live.
 
-## Decision
-Freeze the regime switcher as the live candidate runner:
-1. Compute market regime daily via `default_regime`
-2. Apply trend-rule entries/exits when trend
-3. Apply Williams %R entries/exits when chop
-4. Write results into canonical `fair_compare_full_oos.csv` via `fair_compare_path`
-
-## Next Tuning Step
-- Run penalty/Sharpe rebalance on the 3 candidate objective comparison approaches if desired.
-- Optionally build the multi-rule runner that cycles among the top 5 rules under cap-5.
-
-## Regime Detector Update (2026-07-12)
-- Tuned rule-based (ADX 22 / vol 0.22 / ER 0.35 + hysteresis): 33% trend / 67% chop, 9% flip rate, avg duration ~11 bars.
-- Clear feature separation: trend days have high ADX (~60) + high ER (~0.47).
-- Backtest results (5 pos cap, 8+5bps costs):
-  - Plain Donchian40: 529% ret, SR 1.35, eff_SR 0.54, DD 51%, exp 0.16
-  - CCI trend / Williams chop: 1266% ret, SR 1.71, eff_SR 1.61, DD 83%, exp 0.88 (winner on return + eff Sharpe)
-  - Donchian trend / Williams chop: 403% ret, SR 1.26, eff_SR 1.05, DD 77%
-- Pure HMM collapsed; rule-based + hysteresis wins for this altcoin universe.
-- paper_trader_multi.py and regime_backtest.py now use the best mapping.
-
-See regime_backtest.py and analyze_regime_quality() for details.
+## Next step to get statistical power
+- 120d of history is too short for significance. Need more bars (backfill older 1d history)
+  or finer slices to reach ~20+ WF windows before any rule can be called "proven".

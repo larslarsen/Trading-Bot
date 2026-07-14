@@ -40,7 +40,25 @@ ma30_rising 6/8 (p=0.125), cci 5/8 (p=0.453). STILL nothing significant at p<0.0
 too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than donchian
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
-## DEEP-UNIVERSE SCORECARD (2026-07-14) — REAL STATISTICAL POWER
+## MA-RECAPTURE FAMILY (isolated, 2026-07-14) — 66 WF slices, 9 deep majors
+Variants as chop leg (trend=REI). Tests your friend's MA-recapture idea head-to-head.
+
+| variant      | meanRet | worst  | pos/n | effSR | meanDD | Calmar | win% |
+| ma30_ema     | +10.1%  | -29.7 | 26/66 | +0.85 |  8.3% | 2.02  | 4.5% | <- BEST (live fill-in)
+| donchian40   |  +9.9%  | -29.7 | 19/66 | +0.95 |  5.5% | 1.08  | 3.0% | <- baseline
+| d40+ma30_ema |  +9.9%  | -44.9 | 27/66 | +0.76 | 11.2% | 2.26  | 3.0% |
+| ma30         |  +8.7%  | -29.7 | 24/66 | +0.67 |  9.0% | 1.41  | 5.1% |
+| ma30_50      |  +8.6%  | -29.7 | 22/66 | +0.71 |  7.3% | 1.31  | 5.1% |
+| ma30_rising  |  +7.5%  | -29.7 | 20/66 | +0.54 |  6.4% | 0.86  | 4.5% |
+
+Paired vs donchian40: ma30_ema +0.2 15/44 p=0.049* (only sig +), ma30 -1.2 p=0.014* (worse),
+ma30_rising -2.4 p=0.029* (worse), ma30_50 -1.3 p=0.110, d40+ma30_ema -0.0 p=0.311.
+Paired vs ma30_ema: NONE beats it (ma30 p=0.099, ma30_50 p=0.728, ma30_rising p=0.868, combo p=1.000).
+
+DECISION: ma30_ema (close > EMA30) is the BEST MA-recapture variant — only one that beats
+donchian40, and beats all fancier variants (ma30_50 dual-MA, ma30_rising slope are WORSE).
+Simplest form wins. LIVE fill-in (ma30_ema) is the correct MA choice. NO change needed.
+
 9 deep-history majors/mids (ADA,ALGO,AVAX,CRV,DOGE,ETH,LRC,MATIC,SOL), 1450-bar
 common window 2020-09 -> 2024-09, **66 WF slices**. This is the data we already had.
 

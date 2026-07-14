@@ -3,7 +3,7 @@ Live regime-aware paper trader for screened altcoins.
 
 Uses centralized signals from engine.py (cci/rei/williams_r + others).
 Improved regime detector (ADX + vol + Kaufman ER + hysteresis). Optional Hurst persistence filter.
-Defaults: REI (trend) / Williams %R (chop) per verification backtests.
+Defaults: REI (trend) / CCI (chop) per verification backtests.
 Long-only, hard cap 5 positions (ranked by signal strength), 20% equity/trade, 20% DD halt, costs.
 Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET flag.
 """
@@ -75,8 +75,20 @@ def fetch_latest(stem):
 
 
 
+# Daily re-screen: regenerate the live universe (local-only) BEFORE reading it,
+# so the trader + collector always run on a fresh list (new listings picked up,
+# delistings dropped). run_screen() writes a timestamped CSV; we then read the
+# latest. Kept inside the daily run so it piggybacks on the existing 00:05 UTC cron.
+try:
+    from screen_liquidity_idiosyncratic import run_screen
+    new_screen = run_screen()
+    print(f'Re-screened universe -> {new_screen.name}')
+except Exception as e:
+    # Screen failure must NOT abort the trading run; fall back to the last CSV.
+    print(f'WARN re-screen failed ({e!r}); using last saved screen')
+
 screen = pd.read_csv(sorted(OUT.glob('screen_liqu_idio_*.csv'))[-1])
-screen = screen[screen.tier.isin(['large','mid','tail'])]
+screen = screen[screen.tier.isin(['large', 'mid', 'tail'])]
 stems = screen.stem.tolist()
 state = MultiPositionState(initial_capital=INITIAL)
 
@@ -255,7 +267,23 @@ raw_active_count = len([s for s in raw_signals.values() if s.get('entry')])
 print(f'Active entry signals ({active_rule}): {raw_active_count} (ranked, taking top {CONFIG.max_positions} by strength)')
 
 # Reconcile stale positions
+screen_set = set(stems)  # fresh live universe from today's re-screen
 for sym in list(state.positions.keys()):
+    # Policy B: a held coin that dropped off the daily screen is force-closed.
+    # Without this, an unmonitored open position would strand (no future signal
+    # would ever close it — the trader only watches screen-listed coins). The
+    # dropoff A/B test (test_dropoff_policy.py) showed B bounds this tail risk;
+    # A (ride to exit) left positions stranded with no exit signal.
+    if sym not in screen_set:
+        px_row = prices.get(sym)
+        px = float(px_row['close'].iloc[-1]) if px_row is not None else None
+        if px is None or px <= 0:
+            px_row = fetch_latest(sym)
+            px = float(px_row['close']) if px_row is not None else None
+        if px is not None and px > 0:
+            state.close_position(sym, px)
+            print(f'CLOSE {sym} @ {px:.4f} (dropped off live screen — policy B)')
+            continue
     px_row = prices.get(sym)
     if px_row is None:
         px_row = fetch_latest(sym)

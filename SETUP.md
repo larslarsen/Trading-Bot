@@ -68,7 +68,46 @@ systemctl --user restart collector-daemon
 
 ---
 
-## 3. CPU cores — `TRADING_BOT_CORES`
+## 3. Live universe screening — daily re-screen + weekly CoinGecko refresh
+
+The live universe (`backtest_output/screen_liqu_idio_*.csv`) is **rebuilt every
+day**, not hand-run. Two layers:
+
+1. **Daily re-screen (local, inside the trader).** `paper_trader_multi.py` calls
+   `screen_liquidity_idiosyncratic.run_screen()` at startup *before* it reads the
+   screen. `run_screen()` is local-only (reads `data/universe_broad.csv` +
+   local `*_1d_max.csv`, no network) and writes a **timestamped** CSV. The trader
+   then reads the latest one. This means:
+   - new listings are picked up automatically the next day,
+   - delistings / coins that fall out of the top-idio-vol 20% are dropped,
+   - it piggybacks on the existing `5 0 * * *` trader cron (no new scheduler),
+   - a screen failure is caught and falls back to the last saved CSV (the
+     trading run never aborts on a screen error).
+
+2. **Weekly CoinGecko broad-universe refresh (network, rate-limited).** The
+   screen only re-ranks within `universe_broad.csv`; to discover *brand-new*
+   coins you must refresh that file. It hits the CoinGecko API (rate-limited),
+   so it runs **weekly**, not daily:
+
+   ```
+   37 11 * * 0  cd /home/lars/trading-bot && /home/lars/trading-bot/.venv/bin/python \
+     fetch_coingecko_universe.py >> /home/lars/trading-bot/logs/coingecko_fetch.log 2>&1
+   ```
+   (Sun 11:37 UTC.) Verify with `crontab -l`.
+
+### Dropoff policy B (live positions)
+
+When a coin with an **open position** drops off the daily screen, the trader
+**force-closes it that day** (logged `CLOSE <sym> (dropped off live screen —
+policy B)`). Rationale: without this, an unmonitored open position would
+*strand* — the trader only watches screen-listed coins, so no future signal
+would ever close it. The A/B dropoff test (`test_dropoff_policy.py`) showed
+riding-to-exit (policy A) leaves this tail risk open; force-close (B) bounds it.
+Positions still on the screen are managed normally to their signal exit.
+
+---
+
+## 4. CPU cores — `TRADING_BOT_CORES`
 
 The model trainer / walk-forward / grid workers size their parallelism from a
 single setting in `config.py`:
@@ -98,7 +137,7 @@ python -c "import config; print(config.N_PHYSICAL_CORES, config.N_JOBS)"
 
 ---
 
-## 4. First-deploy checklist
+## 5. First-deploy checklist
 
 - [ ] `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
 - [ ] `crontab -l` shows the `5 0 * * *` paper-trader line

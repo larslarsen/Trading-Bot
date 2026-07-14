@@ -36,7 +36,9 @@ MAX_POS, POS_PCT = 5, 0.20
 CANDIDATES = [
     ("donchian40", "chop"), ("ma30_ema", "chop"), ("cci", "chop"), ("tsi", "chop"),
     ("rsi", "chop"), ("bop", "chop"), ("mtf", "chop"), ("ma30", "chop"),
-    ("ma30_rising", "chop"), ("ma30_50", "chop"),
+    ("williams_r", "chop"), ("williams_r_buggy", "chop"),
+    ("rei", "chop"), ("bbwp", "chop"),
+    ("stochastic", "chop"), ("mfi", "chop"), ("ift_rsi", "chop"),
     ("d40+ma30_ema", "combo"),
 ]
 
@@ -55,7 +57,7 @@ def prefix(data, day):
     return {s: d.loc[:day] for s, d in data.items() if len(d.loc[:day]) > 0}
 
 
-def run_strategy(data, dates, chop_rule, combo=False):
+def run_strategy(data, dates, chop_rule, combo=False, fill_rule="ma30_ema"):
     cfg = EngineConfig(
         initial_capital=10000.0, max_daily_loss_pct=0.03, max_drawdown_pct=0.20,
         max_positions=MAX_POS, max_position_pct=POS_PCT, min_equity_to_trade=100.0,
@@ -79,7 +81,7 @@ def run_strategy(data, dates, chop_rule, combo=False):
             if len(ent) and int(ent.iloc[-1]): active.append(s)
         if combo and reg == "chop" and len(active) == 0:
             for s in pre:
-                ent, _ = get_regime_signals("ma30_ema", pre[s].reset_index())
+                ent, _ = get_regime_signals(fill_rule, pre[s].reset_index())
                 if len(ent) and int(ent.iloc[-1]): active.append(s)
         prices = {s: float(pre[s]["close"].iloc[-1]) for s in pre}
         eng.start_daily_bar(next(iter(prices.values()), None))

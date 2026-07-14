@@ -1,19 +1,21 @@
 """
-Fixed strict day-by-day OOS paper trader replay with correct cash/MTM math.
+Fixed strict day-by-day OOS paper trader replay using the SHARED PortfolioEngine.
 
-Uses explicit cash tracking to avoid state machine subtleties:
-- cash starts at initial
-- On open: calculate correct fill (slip+cost), deduct cash, record position with shares
-- On close: calculate proceeds (after cost), add to cash, record pnl
-- Equity each day = cash + sum(shares * current_close for open positions)
-- Applies same DD halt, position caps, 20% sizing
-- Causal regime and signals using only data up to the day
-- Baseline = pure Donchian40
-- Regime = improved regime + cci/williams or rei/williams
+This drives portfolio_engine.PortfolioEngine (the exact same cash/MTM/risk logic
+the live trader uses) instead of a separate SimPosition implementation. The two
+code paths now share one source of truth, so a replay verifies the live math.
+
+- Causal regime and signals using only data up to the day.
+- Explicit cash tracking inside the engine: open deducts cash, close credits cash,
+  equity = cash + position value.
+- Applies same DD halt, position caps, 20% sizing as live.
+- Baseline = pure Donchian40; regime = improved regime + cci/williams or rei/williams.
 """
 
 import pandas as pd
 import numpy as np
+from portfolio_engine import PortfolioEngine, EngineConfig
+
 from engine import load_screened_universe, improved_compute_live_regime, get_regime_signals, atr_trailing_exit
 
 COST_BPS = 8 / 10000.0
@@ -21,11 +23,6 @@ SLIP_BPS = 5 / 10000.0
 MAX_POS = 5
 POS_PCT = 0.20
 
-class SimPosition:
-    def __init__(self, symbol, entry, shares):
-        self.symbol = symbol
-        self.entry = entry
-        self.shares = shares
 
 def load_data():
     coin_data = load_screened_universe(min_bars=120)
@@ -33,8 +30,10 @@ def load_data():
     dates = pd.DatetimeIndex(sorted(set(ts for df in data.values() for ts in df.index)))
     return data, dates
 
+
 def prefix_up_to(data, day):
     return {s: d.loc[:day] for s, d in data.items() if len(d.loc[:day]) > 0}
+
 
 def d40_latest_entry(dfp):
     if len(dfp) < 40:
@@ -42,36 +41,53 @@ def d40_latest_entry(dfp):
     dh = dfp['high'].rolling(40).max().shift(1)
     return int(dfp['close'].iloc[-1] > dh.iloc[-1])
 
+
 def latest_entry(rule, dfp):
     try:
         ent, _ = get_regime_signals(rule, dfp.reset_index())
         return int(ent.iloc[-1]) if len(ent) > 0 else 0
-    except:
+    except Exception:
         return 0
+
 
 def compute_regime(prefix):
     try:
         return improved_compute_live_regime(prefix)
-    except:
+    except Exception:
         return 'trend'
+
+
 def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', initial=10000.0, use_trailing=False):
     oos_dates = all_dates[(all_dates >= pd.Timestamp(start)) & (all_dates <= pd.Timestamp(end))]
-    cash = initial
-    positions = {}  # sym -> SimPosition
+
+    cfg = EngineConfig(
+        initial_capital=initial,
+        max_daily_loss_pct=0.03,
+        max_drawdown_pct=0.20,
+        max_positions=MAX_POS,
+        max_position_pct=POS_PCT,
+        min_equity_to_trade=100.0,
+        flash_crash_bars=5,
+        flash_crash_pct=0.50,
+        extreme_move_pct=0.90,
+        cost_bps=COST_BPS,
+        slippage_bps=SLIP_BPS,
+        enable_vol_target=False,
+    )
+    eng = PortfolioEngine(cfg)
     equity_hist = []
-    trade_count = 0
     pos_count_hist = []
 
     for day in oos_dates:
         pre = prefix_up_to(data, day)
         if not pre:
-            equity_hist.append(cash + sum(p.shares * 0 for p in positions.values()))
+            equity_hist.append(eng.equity)
+            pos_count_hist.append(len(eng.positions))
             continue
 
-        # Decide active coins
+        # Decide active coins for THIS day using only prefix data
         if mode == 'baseline':
             active = [s for s in pre if d40_latest_entry(pre[s])]
-            rule = 'd40'
         else:
             reg = compute_regime(pre)
             rule = trend_rule if reg == 'trend' else 'williams_r'
@@ -79,68 +95,62 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
 
         current_prices = {s: float(pre[s]['close'].iloc[-1]) for s in pre}
 
-        # Closes
-        to_close = [s for s in list(positions.keys()) if s not in active]
+        # Daily bar start: reset daily pnl + flash window (counts in DAYS now)
+        ref = next(iter(current_prices.values()), None)
+        eng.start_daily_bar(ref)
 
-        # Clean trailing (ATR 14/2.0 gated to trend)
+        # Circuit breaker check (uses current equity)
+        ok, reason = eng.check_circuit_breakers()
+        if not ok:
+            eng.flatten_all(current_prices)
+            equity_hist.append(eng.equity)
+            pos_count_hist.append(0)
+            continue
+
+        # Closes: not in active OR explicit exit -> close
+        to_close = [s for s in list(eng.positions.keys()) if s not in active]
+
+        # ATR trailing (regime-gated to trend)
         if use_trailing:
             reg = compute_regime(pre)
             if reg == 'trend':
-                for sym in list(positions.keys()):
+                for sym in list(eng.positions.keys()):
                     if sym not in to_close:
                         sub = pre.get(sym)
                         if sub is not None and len(sub) >= 5:
                             try:
-                                recent = sub.iloc[-max(14*2, 30):]
+                                recent = sub.iloc[-max(14 * 2, 30):]
                                 if atr_trailing_exit(recent, 14, 2.0).iloc[-1] == 1:
                                     to_close.append(sym)
-                            except:
+                            except Exception:
                                 pass
 
-        # Actually process the closes (signal + trailing)
         for sym in set(to_close):
-            if sym not in positions: continue
-            pos = positions.pop(sym)
-            px = current_prices.get(sym, pos.entry)
-            proceeds = pos.shares * px * (1 - COST_BPS)
-            cash += proceeds
-            trade_count += 1
+            px = current_prices.get(sym)
+            if px is not None and px > 0:
+                eng.close_position(sym, px)
 
-        # Opens (new entries)
+        # Opens (rank-free here; ranking lives in the live trader / can be added)
         for sym in active:
-            if sym in positions or len(positions) >= MAX_POS:
+            if sym in eng.positions or len(eng.positions) >= eng.config.max_positions:
                 continue
             px = current_prices.get(sym)
             if px is None or px <= 0:
                 continue
-            fill = px * (1 + SLIP_BPS + COST_BPS)
-            size_usd = cash * POS_PCT
-            if size_usd < 100:
-                continue
-            shares = size_usd / fill
-            positions[sym] = SimPosition(sym, fill, shares)
-            cash -= shares * fill
-            trade_count += 1
+            ok, reason = eng.check_circuit_breakers()
+            if not ok:
+                break
+            size_usd = eng.equity * POS_PCT  # equity-based sizing (matches live)
+            eng.open_position(sym, px, size_usd)
 
-        # End of day equity = cash + marked positions
-        mtm = sum(p.shares * current_prices.get(p.symbol, p.entry) for p in positions.values())
-        eq = cash + mtm
+        # Mark to market at end of day
+        eq = eng.mark_to_market(current_prices)
         equity_hist.append(eq)
-        pos_count_hist.append(len(positions))
-
-        # DD check (simplified flatten)
-        peak = max(equity_hist) if equity_hist else initial
-        if peak > 0 and (peak - eq) / peak > 0.20:
-            for sym, pos in list(positions.items()):
-                px = current_prices.get(sym, pos.entry)
-                proceeds = pos.shares * px * (1 - COST_BPS)
-                cash += proceeds
-            positions.clear()
-            eq = cash
-            equity_hist[-1] = eq
+        pos_count_hist.append(len(eng.positions))
 
     if not equity_hist:
-        return {'return_pct': 0, 'sharpe': 0, 'effective_sharpe': 0, 'max_dd_pct': 0, 'trades': 0, 'avg_pos': 0, 'exposure': 0, 'days': 0}
+        return {'return_pct': 0, 'sharpe': 0, 'effective_sharpe': 0, 'max_dd_pct': 0, 'trades': 0,
+                'avg_pos': 0, 'exposure': 0, 'days': 0}
 
     final = equity_hist[-1]
     rets = pd.Series(equity_hist).pct_change().dropna()
@@ -150,7 +160,6 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
     exp = avg_pos / MAX_POS if MAX_POS > 0 else 0
     eff_sr = sr * np.sqrt(max(exp, 1e-6))
 
-    # Max DD
     peak = initial
     max_dd = 0.0
     for e in equity_hist:
@@ -158,7 +167,6 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
         dd = (peak - e) / peak if peak > 0 else 0
         max_dd = max(max_dd, dd)
 
-    # Return curve
     oos_dates_used = oos_dates[:len(equity_hist)]
     curve = [(str(d.date()), float(e)) for d, e in zip(oos_dates_used, equity_hist)]
     return {
@@ -166,13 +174,14 @@ def replay_oos(data, all_dates, start, end, mode='regime', trend_rule='cci', ini
         'sharpe': round(sr, 2),
         'effective_sharpe': round(eff_sr, 2),
         'max_dd_pct': round(max_dd * 100, 1),
-        'trades': trade_count,
+        'trades': len(eng.trades),
         'avg_pos': round(avg_pos, 1),
         'exposure': round(exp, 2),
         'days': len(equity_hist),
         'final_equity': round(equity_hist[-1], 2) if equity_hist else initial,
-        'equity_curve': curve
+        'equity_curve': curve,
     }
+
 
 def main():
     print("Loading screened data for fixed paper replay...")
@@ -198,18 +207,18 @@ def main():
         results[name] = res
         print(f"{name:16s} | Start: $10000 | End: ${res['final_equity']:.2f} | Total Return: {res['return_pct']}%")
 
-    # Save full curves
     import pandas as pd
     df_list = []
     for name in results:
         curve = results[name].get("equity_curve", [])
         if curve:
-            ddf = pd.DataFrame(curve, columns=["date", name])
-            df_list.append(ddf.set_index("date"))
+            ddf = pd.DataFrame(curve, columns=["date", name]).set_index("date")
+            df_list.append(ddf)
     if df_list:
         out_df = pd.concat(df_list, axis=1)
         out_df.to_csv("backtest_output/paper_replay_90d_equity.csv")
         print(f"\nFull equity curve saved to backtest_output/paper_replay_90d_equity.csv ({len(out_df)} days)")
+
 
 if __name__ == "__main__":
     main()

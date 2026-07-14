@@ -123,7 +123,9 @@ elif use_improved_regime:
                 regime = "chop"
         else:
             regime = improved_compute_live_regime(prices)
-    except Exception:
+    except Exception as e:
+        # Don't silently swallow a real regime bug — log it and fall back loudly.
+        print(f'REGIME FALLBACK (improved failed: {e!r}); using simple compute_live_regime')
         regime = compute_live_regime(prices)
 else:
     regime = compute_live_regime(prices)

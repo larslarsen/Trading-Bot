@@ -80,7 +80,37 @@ def rei_signals(df, period: int = 14):
 
 
 def williams_r_signals(df, period: int = 14):
-    """Williams %R: entry when > -80 and rising, exit when < -20 and falling."""
+    """Williams %R (Larry Williams, 1973): mean-reversion oscillator, 0 to -100.
+    Literature-standard usage:
+      - Oversold: %R < -80 ; Overbought: %R > -20
+      - Entry: %R crosses UP through -80 (price bounces off the oversold floor)
+      - Exit:  %R crosses UP through -20 (price has recovered -> sell into strength)
+    Exit is gated on recovery, so we sell into strength, never at the oversold bottom.
+    NOTE: UNVALIDATED vs the legacy buggy exit (see williams_r_buggy_exit). On a
+    3-window chop replay the buggy exit actually outperformed this one
+    (+11.8% vs -5.0% mean), though the buggy version sells at the oversold bottom
+    (pathological). Treat this as the theoretically-correct form pending further test.
+    """
+    high = pd.Series(df["high"].values, index=df.index)
+    low = pd.Series(df["low"].values, index=df.index)
+    close = pd.Series(df["close"].values, index=df.index)
+    highest = high.rolling(period, min_periods=1).max()
+    lowest = low.rolling(period, min_periods=1).min()
+    wr = -100 * (highest - close) / (highest - lowest + 1e-12)
+    prev = wr.shift(1)
+    entry = ((prev <= -80) & (wr > -80)).astype(int)        # cross UP through -80 (bounce starts)
+    exit_sig = ((prev <= -20) & (wr > -20)).astype(int)     # cross UP through -20 (recovered -> sell into strength)
+    return entry, exit_sig
+
+
+def williams_r_buggy_exit(df, period: int = 14):
+    """LEGACY / UNVALIDATED. Kept for comparison only — do NOT use live.
+    Original pre-2026-07-14 Williams exit: sells whenever %R is below -20 AND
+    falling. This fires at the oversold BOTTOM (e.g. wr=-97), crystallizing the
+    worst price. It happened to outperform the recovery exit on one 90d alt window
+    (acts like a tight churn stop), but is theoretically wrong and pathological.
+    Preserved as a named rule so the result is reproducible, not silently lost.
+    """
     high = pd.Series(df["high"].values, index=df.index)
     low = pd.Series(df["low"].values, index=df.index)
     close = pd.Series(df["close"].values, index=df.index)
@@ -309,6 +339,8 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return rei_signals(df)
     if rule in ("williams", "williams_r", "wr"):
         return williams_r_signals(df)
+    if rule in ("williams_r_buggy", "williams_buggy", "wr_buggy"):
+        return williams_r_buggy_exit(df)
     # MA recapture family
     if rule in ("ma30", "ma30_recapture", "ma30_sma", "recapture", "ma_recapture"):
         return ma30_recapture_signals(df)

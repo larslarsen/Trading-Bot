@@ -189,6 +189,25 @@ def chandelier_exit(df: pd.DataFrame, period: int = 22, mult: float = 3.0) -> pd
     return (close < chand.shift(1)).astype(int)
 
 
+def rsi_signals(df, period: int = 14):
+    """RSI (Wilder 1978): momentum oscillator 0-100.
+    Literature-standard mean-reversion usage:
+      - Oversold entry: RSI < 30 ; Exit on recovery: RSI crosses UP through 50
+    (50 = the neutral midline; exiting there captures the bounce without
+    waiting for full overbought >70, which often means the move already faded.)
+    """
+    close = pd.Series(df["close"].values, index=df.index)
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+    rs = gain / (loss + 1e-12)
+    rsi = 100 - 100 / (1 + rs)
+    prev = rsi.shift(1)
+    entry = (rsi < 30).astype(int)
+    exit_sig = ((prev <= 50) & (rsi > 50)).astype(int)
+    return entry, exit_sig
+
+
 def atr_trailing_exit(df: pd.DataFrame, period: int = 14, mult: float = 2.0) -> pd.Series:
     """Pure ATR trailing stop (ratchet from highest high).
     Exit long when close < (cummax(high) - mult * ATR).
@@ -337,6 +356,8 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
         return cci_signals(df)
     if rule in ("rei",):
         return rei_signals(df)
+    if rule in ("rsi", "rsi_signals"):
+        return rsi_signals(df)
     if rule in ("williams", "williams_r", "wr"):
         return williams_r_signals(df)
     if rule in ("williams_r_buggy", "williams_buggy", "wr_buggy"):

@@ -41,23 +41,31 @@ too few; need ~15-20). The combo (d40+ma30_ema) is NOT significantly better than
 alone on finer slices — its earlier "win" was the coarse-slice artifact.
 
 ## CHOP-LEG DEEP TEST (2026-07-14) — tsi/bop/ma30_50 vs LIVE
-Full switched strategy, 8 finer WF slices, 68 coins. These three led the scorecard.
+Full switched strategy (8 finer slices first, then 12 finer slices @8d).
 
+8-slice (coarse) result — INFLATED by slicing variance:
 | config          | meanRet | effSR | meanDD | Calmar |
-|-----------------|--------:|------:|------:|------:|
 | bop             | +36.1%  | +2.88 | 13.7% | 18.70 |
 | ma30_50         | +32.0%  | +2.71 | 13.3% |  4.56 |
-| tsi             | +26.5%  | +3.10 | 13.3% | 10.88 |  <- best effSR, 6/7 beats LIVE
+| tsi             | +26.5%  | +3.10 | 13.3% | 10.88 |
 | LIVE(d40+ma30_ema)| +6.5% | +1.49 | 14.1% |  2.37 |
 
-Paired vs LIVE: tsi 6/7 (p=0.125), ma30_50 6/7 (p=0.125), bop 4/5 (p=0.375).
-All three CRUSH live (+20 to +30% mean gap, consistent across all 8 slices).
-Combo fill == sole (donchian40 near-dead in chop; candidate does the work).
+12-slice @8d (finer, more powerful) — TRUE edge is MODEST:
+| config          | meanRet | effSR | meanDD | Calmar |
+| tsi             | +11.7%  | +2.87 | 12.7% |  3.86 |
+| bop             | +11.2%  | +3.35 | 13.8% |  9.27 |  <- best effSR/Calmar at 12 slices
+| ma30_50         |  +8.3%  | +1.96 | 10.5% | 14.06 |
+| LIVE(d40+ma30_ema)| +6.4% | +2.47 | 15.8% |  1.64 |
 
-DECISION: LIVE chop leg (d40+ma30_ema) is genuinely weak — 4-6x return gap vs
-tsi/bop/ma30_50, consistent across all slices. tsi is best-balanced (effSR 3.10,
-6/7 beats, established TSI literature). RECOMMEND swapping live chop rule to tsi.
-Caveat: still p=0.125 (8 slices underpowered for p<0.05); effect size is large.
+Paired vs LIVE @12 slices: tsi 6/9 (p=0.508), bop 6/8 (p=0.289), ma30_50 6/10 (p=0.754).
+ALL beat LIVE in ~6/8-10 slices but by a SMALL margin (+5 to +12%, not +20-36%).
+Coarse 8-slice OVERSTATED the edge (+20-36%) due to fewer/larger windows (outlier variance).
+
+DECISION: Edge of tsi/bop over live is REAL but MODEST (+5-12%) and NOT significant
+(p>=0.29 even at 12 slices). 360 bars is fundamentally underpowered. The live combo
+is within noise of tsi/bop. RECOMMEND: KEEP LIVE as-is (option C) until more data, OR
+swap to bop (best effSR/Calmar at 12 slices) accepting a marginal, unproven edge.
+Do NOT swap based on the inflated 8-slice numbers.
 
 LIVE full system across {10,15,20,25}% position fractions, 8 WF slices:
 | frac | meanRet | effSR | meanDD | Calmar |

@@ -236,6 +236,70 @@ def rsi_signals(df, period: int = 14):
     return entry, exit_sig
 
 
+def stochastic_signals(df, k_period: int = 14, d_period: int = 3):
+    """Stochastic oscillator %K/%D (Lane, 1950s): bounded 0-100 momentum.
+    Same mean-reversion family as CCI/Williams %R. Literature-standard:
+      - Oversold entry: %K crosses UP through 20 (price bounces off the floor)
+      - Exit: %K crosses UP through 80 (recovered -> sell into strength)
+    Exit is gated on recovery, so we sell into strength, never at the bottom
+    (mirrors the Williams %R lesson: don't crystallize the oversold low).
+    %D is the signal line (SMA of %K); we trigger on %K for timeliness.
+    """
+    high = _col(df, "high"); low = _col(df, "low"); close = _col(df, "close")
+    ll = low.rolling(k_period, min_periods=1).min()
+    hh = high.rolling(k_period, min_periods=1).max()
+    k = 100 * (close - ll) / (hh - ll + 1e-12)
+    prev = k.shift(1)
+    entry = ((prev <= 20) & (k > 20)).astype(int)          # cross UP through 20 (bounce)
+    exit_sig = ((prev <= 80) & (k > 80)).astype(int)       # cross UP through 80 (recovered)
+    return entry, exit_sig
+
+
+def mfi_signals(df, period: int = 14):
+    """Money Flow Index (MFI): volume-weighted RSI, bounded 0-100.
+    Adds volume (your friend's angle) to the mean-reversion oscillator family:
+    'volume RSI' — money flowing in/out, not just price. Literature-standard:
+      - Oversold entry: MFI crosses UP through 20
+      - Exit: MFI crosses UP through 80 (recovered -> sell into strength)
+    Raw MFI uses a typical-price * volume money-flow ratio.
+    """
+    high = _col(df, "high"); low = _col(df, "low"); close = _col(df, "close")
+    vol = _col(df, "volume")
+    tp = (high + low + close) / 3.0
+    mf = tp * vol
+    pos = mf.where(tp > tp.shift(1), 0.0).rolling(period, min_periods=1).sum()
+    neg = mf.where(tp < tp.shift(1), 0.0).rolling(period, min_periods=1).sum()
+    mfi = 100 - 100 / (1 + pos / (neg + 1e-12))
+    prev = mfi.shift(1)
+    entry = ((prev <= 20) & (mfi > 20)).astype(int)        # cross UP through 20
+    exit_sig = ((prev <= 80) & (mfi > 80)).astype(int)      # cross UP through 80
+    return entry, exit_sig
+
+
+def inverse_fisher_rsi_signals(df, period: int = 14, smooth: int = 5):
+    """Inverse Fisher Transform (IFT) of RSI — Ehlers (MESA Software).
+    The IFT normalizes an oscillator to a near-Gaussian +/-1 range, sharpening
+    the extremes so oversold/overbought are clearer. Applied to RSI:
+      - Entry: IFT crosses UP through -0.5 (deep oversold, beginning to revert)
+      - Exit:  IFT crosses UP through +0.5 (recovered -> sell into strength)
+    Tests whether NORMALIZING an existing oscillator (RSI) adds edge vs the raw
+    oscillator — a within-family sharpening, not a new mechanism.
+    """
+    close = _col(df, "close")
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
+    rs = gain / (loss + 1e-12)
+    rsi = 100 - 100 / (1 + rs)
+    x = (rsi / 100.0 - 0.5) * 2.0                      # map 0..100 -> -1..1
+    x = x.rolling(smooth, min_periods=1).mean()         # smooth per Ehlers
+    ift = (np.exp(2 * x) - 1) / (np.exp(2 * x) + 1)    # inverse Fisher transform
+    prev = ift.shift(1)
+    entry = ((prev <= -0.5) & (ift > -0.5)).astype(int)  # cross UP through -0.5
+    exit_sig = ((prev <= 0.5) & (ift > 0.5)).astype(int)  # cross UP through +0.5
+    return entry, exit_sig
+
+
 def atr_trailing_exit(df: pd.DataFrame, period: int = 14, mult: float = 2.0) -> pd.Series:
     """Pure ATR trailing stop (ratchet from highest high).
     Exit long when close < (cummax(high) - mult * ATR).
@@ -382,6 +446,13 @@ def get_regime_signals(rule_name: str, df: pd.DataFrame):
     # Bollinger Band Width Percentile (vol-regime rule)
     if rule in ("bbwp", "bbwp_signals", "bband_width_pct"):
         return bbwp_signals(df)
+    # --- Mean-reversion oscillator family (CCI-family extensions) ---
+    if rule in ("stochastic", "stoch", "stochastic_k", "%k", "stoch_k"):
+        return stochastic_signals(df)
+    if rule in ("mfi", "money_flow_index", "mfi_signals"):
+        return mfi_signals(df)
+    if rule in ("ift_rsi", "inverse_fisher_rsi", "fisher_rsi"):
+        return inverse_fisher_rsi_signals(df)
     # Hurst regime filter (H > 0.5 = trend)
     if rule in ("hurst_trend", "hurst"):
         # Use hurst_regime as a dynamic rule switch - caller usually pairs with regime_rule_map

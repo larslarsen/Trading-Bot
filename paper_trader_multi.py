@@ -9,7 +9,7 @@ Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET
 """
 import sys
 from datetime import datetime, timezone
-print(f"\n=== paper_trader_multi run: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===", flush=True)
+print(f"\n=== paper_trader_multi run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
 print('START paper_trader_multi.py', flush=True)
 import json
 from pathlib import Path
@@ -309,7 +309,7 @@ if len(state.equity_history) > 365:
     state.equity_history = state.equity_history[-365:]
 state.save()
 
-print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M")}] MTM equity: ${eq:.2f}')
+print(f'[{datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}] MTM equity: ${eq:.2f}')
 print(f'Peak: ${state.peak_equity:.2f}')
 print(f'Max DD: {state.max_dd:.2%}')
 print(f'Positions: {len(state.positions)}')

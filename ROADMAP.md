@@ -1,17 +1,25 @@
 # CURRENT PRODUCTION FOCUS (as of 2026-07-14)
 
 Core: altcoin daily regime-based long-only rule system.
-- FINAL LIVE CONFIG: trend = REI + ATR trailing (14/2.0, trend-gated); chop = donchian40
-  (40d breakout) primary + ma30_ema recapture fill-in when donchian is silent.
+- FINAL LIVE CONFIG: trend = REI (no fill-in; REI silent on only 1.6% of trend
+  days) + ATR trailing (14/2.0, trend-gated); chop = CCI primary + ma30_ema
+  recapture fill-in when CCI is silent (rare — 0/97 chop days silent on 68-coin set).
+  Held until MTF 4h data (~Oct 2026) achieves stat significance.
 - Centralized in engine.py (donchian, cci, rei, williams_r [lit-correct + buggy-named],
   tsi, rsi, bop, mtf, ma30 recapture family, chandelier/atr trailing exits).
 - paper_trader_multi.py + order_manager_multi.py for execution (5 pos, ATR trail, vol-target flag).
 - Strict causal walk-forward (test_rule_scorecard.py): full entry+exit strategy via shared
   PortfolioEngine, PANEL metrics (ret/effSR/DD/calmar/win%), PAIRED exact sign test.
 
-Verified: ATR trailing (trend-gated) gives lift on 90d OOS vs no-trail. donchian40+ma30_ema
-fill beats donchian40-alone on effSR/consistency/DD (5/6 positive slices, +31.4% mean).
-No chop rule is statistically distinguishable from donchian40 on 6 WF slices (data too short).
+Verified: ATR trailing (trend-gated) gives lift on 90d OOS vs no-trail.
+CCI is the best of the bounded-oscillator (mean-reversion) chop family tested on
+68 coins / 8 WF slices: cci +29.2% (effSR +2.16, 33.6% win) vs d40 +6.5%, bop +36.1%,
+tsi +26.5%, rei +24.5%. New CCI-family members (Stochastic, MFI, IFT-RSI) did NOT beat
+cci: stochastic +5.8%, mfi +4.3%, ift_rsi +8.0% — all with negative entry contribution
+(-5 to -7) vs cci's +14.1. MFI (volume-weighted) added nothing vs price-based cci.
+REI is the only entry rule significant vs d40 (p=0.031). No chop rule distinguishable
+from d40 at p<0.05 except rei; cci is best non-significant.
+Live entry: chop->cci (+ma30_ema silent fill), trend->rei, in engine.py + config.py.
 
 Tests: green (35 passed, 4 skipped). Live trader RUNNING on final config.
 See live_candidates.md for the full scorecard and decisions.

@@ -50,6 +50,7 @@ class MultiPositionState(PortfolioEngine):
                 tmp.replace(self._state_file)
             finally:
                 fcntl.flock(lockf, fcntl.LOCK_UN)
+        # `with` closes lockf on exit -> no fd leak across many save() calls.
 
     def _log_trade(self, trade):
         if self._journal_file.exists():

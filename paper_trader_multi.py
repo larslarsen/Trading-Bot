@@ -58,7 +58,10 @@ def fetch_latest(stem):
             'close': float(k[4]),
             'volume': float(k[5]),
         }
-    except Exception:
+    except Exception as e:
+        # Fetch failure -> caller skips the new bar (uses stale data). That is
+        # acceptable for a poll, but the failure must be visible, not silent.
+        print(f"WARN fetch_latest failed: {e!r}")
         return None
 
 
@@ -221,7 +224,10 @@ if regime == 'chop' and not active and SECONDARY_CHOP_RULE:
             ma = close.ewm(span=30, adjust=False).mean()
             strength = float(((close.iloc[-1] - ma.iloc[-1]) / (ma.iloc[-1] + 1e-12)) * 100)
             raw_signals[stem] = {'entry': last_entry, 'exit': last_exit, 'strength': strength}
-        except Exception:
+        except Exception as e:
+            # Swallowing hid calc bugs and silently dropped coins from entries.
+            # Keep "no signal" (safe default) but log which stem failed.
+            print(f"WARN regime signal failed for {stem}: {e!r}")
             raw_signals[stem] = {'entry': 0, 'exit': 0, 'strength': 0.0}
     active = [sym for sym, s in raw_signals.items() if s['entry']]
     active = [sym for sym, _ in sorted(
@@ -309,8 +315,11 @@ for sym in list(state.positions.keys()):
                     px = float(df['close'].iloc[-1])
                     state.close_position(sym, px)
                     print(f'CLOSE {sym} @ {px:.4f} (ATR trailing stop)')
-            except Exception:
-                pass
+            except Exception as e:
+                # Do NOT silently swallow: a failed trailing-stop calc must be
+                # visible. Leave the position OPEN (conservative) rather than
+                # closing blind, but log so the failure is never silent.
+                print(f"WARN ATR trailing-exit calc failed for {sym}: {e!r}")
 
 # Open new positions
 for sym in active:

@@ -10,6 +10,9 @@ Endpoints:
 """
 import json
 import traceback
+import threading
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,6 +43,10 @@ app = FastAPI(title="BTC ML Bot Inference")
 latest_model = None
 model_loaded_at = None
 MODEL_GLOB = str(Path(__file__).parent / 'models' / 'latest_xgb.json')
+# Guards the model globals: load_latest_model() writes them; get_signal() reads
+# and predicts against them. FastAPI runs handlers in a threadpool, so without
+# this a concurrent /refresh could swap latest_model mid-predict (F1).
+_model_lock = threading.Lock()
 
 
 class SignalResponse(BaseModel):
@@ -61,32 +68,58 @@ def _latest_model_path():
 
 def load_latest_model():
     global latest_model, model_loaded_at
-    p = _latest_model_path()
-    if p is None:
-        print('[model_server] no model path found')
-        return False
-    print(f'[model_server] trying model path: {p}')
+    with _model_lock:
+        p = _latest_model_path()
+        if p is None:
+            print('[model_server] no model path found')
+            return False
+        print(f'[model_server] trying model path: {p}')
+        try:
+            if str(p).endswith('.json'):
+                latest_model = xgb.XGBClassifier()
+                latest_model.load_model(str(p))
+            else:
+                latest_model = joblib.load(str(p))
+            model_loaded_at = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
+            print(f'[model_server] model loaded successfully, features={getattr(latest_model, "n_features_in_", None)}')
+            return True
+        except Exception as e:
+            latest_model = None
+            model_loaded_at = None
+            print(f'[model_server] load failed: {e}')
+            return False
+
+
+def _safe_read_csv(path):
+    """Copy a CSV to a private temp file, then read it.
+
+    The live history file is rewritten by data_feed (a separate process) using
+    an atomic tmp+rename, but reading the live path directly could still catch a
+    frame mid-rename on some filesystems. Copying a closed file first gives a
+    byte-consistent snapshot (F2). Raises FileNotFoundError if the file is
+    missing (mirrors the original pd.read_csv behaviour).
+    """
+    if not path.exists():
+        raise FileNotFoundError(path)
+    tmp = tempfile.mktemp(suffix='.csv')
+    shutil.copyfile(path, tmp)
     try:
-        if str(p).endswith('.json'):
-            latest_model = xgb.XGBClassifier()
-            latest_model.load_model(str(p))
-        else:
-            latest_model = joblib.load(str(p))
-        model_loaded_at = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
-        print(f'[model_server] model loaded successfully, features={getattr(latest_model, "n_features_in_", None)}')
-        return True
-    except Exception as e:
-        latest_model = None
-        model_loaded_at = None
-        print(f'[model_server] load failed: {e}')
-        return False
+        return pd.read_csv(tmp, parse_dates=['ts'])
+    finally:
+        try:
+            Path(tmp).unlink()
+        except OSError:
+            pass
 
 
 def compute_features_from_history():
     try:
-        # Load BTC local history and any live history appended by data_feed
-        local = pd.read_csv(LOCAL_CSV, parse_dates=['ts'])
-        hist = pd.read_csv(HISTORY_CSV, parse_dates=['ts']) if HISTORY_CSV.exists() else pd.DataFrame(columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
+        # Load BTC local history and any live history appended by data_feed.
+        # Read a private snapshot (not the live path) to avoid a torn frame if
+        # data_feed rewrites the file concurrently (F2).
+        local = _safe_read_csv(LOCAL_CSV)
+        hist_raw = _safe_read_csv(HISTORY_CSV) if HISTORY_CSV.exists() else None
+        hist = hist_raw if hist_raw is not None else pd.DataFrame(columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
         combined = pd.concat([local, hist], ignore_index=True).drop_duplicates('ts').sort_values('ts')
         if combined.empty or combined.shape[0] < 60:
             raise RuntimeError('not enough history for feature computation')
@@ -207,29 +240,41 @@ def logout():
 def get_signal() -> SignalResponse:
     try:
         print('[model_server] /signal hit')
+        # Ensure loaded (load_latest_model() takes _model_lock internally; do NOT
+        # hold the lock here to avoid re-entrant deadlock on threading.Lock).
         if latest_model is None:
             load_latest_model()
-        if latest_model is None:
+        # Snapshot the model reference under lock so a concurrent /refresh cannot
+        # swap latest_model mid-predict (F1).
+        with _model_lock:
+            model = latest_model
+        if model is None:
             return SignalResponse(timestamp=datetime.now(timezone.utc).isoformat(), signal='FLAT', confidence=0.0, probabilities=[0.0, 0.0, 1.0], error='No model loaded')
 
         fvec, last_bar = compute_features_from_history()
         print(f'[model_server] feature vector shape={fvec.shape}, cols={list(fvec.columns)}')
         print(f'[model_server] last_bar head={dict(last_bar.head(5)) if hasattr(last_bar, "head") else str(last_bar)[:200]}')
 
-        expected = getattr(latest_model, 'n_features_in_', None)
-        print(f'[model_server] model expected feature count={expected}')
-        if expected is not None:
-            if len(fvec.columns) != int(expected):
-                if len(fvec.columns) > int(expected):
-                    fvec = fvec.iloc[:, :int(expected)]
-                else:
-                    for i in range(int(expected) - len(fvec.columns)):
-                        fvec[f'_pad_{i}'] = 0.0
+        expected = getattr(model, 'n_features_in_', None)
+        # F3: never silently truncate (keeps wrong first-N cols) or zero-pad
+        # (injects fake features). Align by name when the model exposes them,
+        # otherwise fail loudly on any count mismatch.
+        if expected is not None and len(fvec.columns) != int(expected):
+            return SignalResponse(timestamp=datetime.now(timezone.utc).isoformat(), signal='FLAT', confidence=0.0, probabilities=[0.0, 0.0, 1.0], error=f'feature count mismatch: got {len(fvec.columns)}, expected {expected}')
+        exp_names = getattr(model, 'feature_names_in_', None)
+        if exp_names is not None:
+            missing = [c for c in exp_names if c not in fvec.columns]
+            if missing:
+                return SignalResponse(timestamp=datetime.now(timezone.utc).isoformat(), signal='FLAT', confidence=0.0, probabilities=[0.0, 0.0, 1.0], error=f'missing model features: {missing}')
+            fvec = fvec[list(exp_names)]  # explicit named order
 
         print('[model_server] predicting...')
         X = np.nan_to_num(fvec.values, nan=0.0, posinf=0.0, neginf=0.0)
-        probs = latest_model.predict_proba(X)[0]
-        cls = int(latest_model.predict(X)[0])
+        # Predict under lock so a concurrent reload cannot swap the model between
+        # predict_proba and predict (F1).
+        with _model_lock:
+            probs = model.predict_proba(X)[0]
+            cls = int(model.predict(X)[0])
         print(f'[model_server] prediction cls={cls} probs={probs.tolist()}')
         signal_map = {0: 'SHORT', 1: 'LONG', 2: 'FLAT'}
         final_signal = signal_map.get(cls, 'FLAT')

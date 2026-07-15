@@ -9,8 +9,6 @@ Paranoid vol target (regime-gated in chop) available via USE_PARANOID_VOL_TARGET
 """
 import sys
 from datetime import datetime, timezone
-print(f"\n=== paper_trader_multi run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
-print('START paper_trader_multi.py', flush=True)
 import json
 from pathlib import Path
 
@@ -24,6 +22,9 @@ from config import (
     USE_PARANOID_VOL_TARGET, VOL_TARGET, USE_ATR_TRAILING, ATR_PERIOD, ATR_MULT,
 )
 from engine import compute_live_regime, get_regime_signals
+
+print(f"\n=== paper_trader_multi run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
+print('START paper_trader_multi.py', flush=True)
 
 def _col(df: pd.DataFrame, name: str) -> pd.Series:
     """Extract a price column as a Series sharing ``df``'s index."""
@@ -42,6 +43,22 @@ LOOKBACK = 40
 
 # Hurst regime (literature-backed persistence filter)
 # H > 0.5 suggests persistent/trending behavior -> favor momentum rules
+
+
+def market_proxy(prices, lookback=60):
+    """Equal-weight average of the last `lookback` closes across coins.
+
+    Reused for Hurst / MA / regime-quality market proxies so the build logic
+    lives in one place.
+    """
+    closes = []
+    for df in prices.values():
+        if len(df) > 0:
+            closes.append(df["close"].iloc[-lookback:].reset_index(drop=True))
+    if not closes:
+        return None
+    minl = min(len(c) for c in closes)
+    return pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
 
 
 def fetch_latest(stem):
@@ -117,34 +134,16 @@ print(f'Loaded {len(prices)} coins')
 use_improved_regime = USE_IMPROVED_REGIME  # always use improved regime detector
 USE_MA_REGIME = USE_MA_REGIME  # Try friend suggestion: MA crossover (short > long) as regime filter
 if USE_HURST_REGIME:
-    from engine import hurst_regime, load_screened_universe
-    # Build market close proxy for Hurst
-    closes = []
-    for df in prices.values():
-        if len(df) > 0:
-            closes.append(df['close'].iloc[-HURST_WINDOW-5:].reset_index(drop=True))
-    if closes:
-        minl = min(len(c) for c in closes)
-        mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
-        regime = hurst_regime(mkt, len(mkt)-1, window=HURST_WINDOW, threshold=HURST_THRESHOLD)
-    else:
-        regime = "chop"
+    from engine import hurst_regime
+    mkt = market_proxy(prices, lookback=HURST_WINDOW + 5)
+    regime = hurst_regime(mkt, len(mkt) - 1, window=HURST_WINDOW, threshold=HURST_THRESHOLD) if mkt is not None else "chop"
 elif use_improved_regime:
     try:
         from engine import improved_compute_live_regime, compute_regime
         if USE_MA_REGIME:
             # Use simple MA crossover as regime (short MA > long MA = trend)
-            from engine import load_screened_universe
-            closes = []
-            for df in prices.values():
-                if len(df) > 0:
-                    closes.append(df['close'].iloc[-60:].reset_index(drop=True))
-            if closes:
-                minl = min(len(c) for c in closes)
-                mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
-                regime = compute_regime(mkt, len(mkt)-1, method="ma")
-            else:
-                regime = "chop"
+            mkt = market_proxy(prices, lookback=60)
+            regime = compute_regime(mkt, len(mkt) - 1, method="ma") if mkt is not None else "chop"
         else:
             regime = improved_compute_live_regime(prices)
     except Exception as e:
@@ -218,6 +217,8 @@ for stem, df in prices.items():
 
         raw_signals[stem] = {'entry': last_entry, 'exit': last_exit, 'strength': strength}
     except Exception as e:
+        # Never silent: a failed signal calc must be visible, not dropped.
+        print(f"WARN regime signal failed for {stem}: {e!r}")
         raw_signals[stem] = {'entry': 0, 'exit': 0, 'strength': 0.0}
 
 # Build active list: open on entry; keep if no exit (or re-evaluate on entry for simplicity)
@@ -250,12 +251,9 @@ if regime == 'chop' and not active and SECONDARY_CHOP_RULE:
             # Keep "no signal" (safe default) but log which stem failed.
             print(f"WARN regime signal failed for {stem}: {e!r}")
             raw_signals[stem] = {'entry': 0, 'exit': 0, 'strength': 0.0}
-    active = [sym for sym, s in raw_signals.items() if s['entry']]
+    active = [sym for sym in raw_signals if raw_signals[sym]['entry']]
     active = [sym for sym, _ in sorted(
         [(sym, raw_signals[sym]['strength']) for sym in active], key=lambda x: -x[1])]
-    active_rule_used = SECONDARY_CHOP_RULE
-else:
-    active_rule_used = active_rule
 
 # For coins we are in, force close on explicit exit
 positions_to_close = []
@@ -313,7 +311,7 @@ if ref_price is not None:
 if ref_price is not None:
     ok, reason = state.check_circuit_breakers()
     if not ok:
-        if state.halted and 'drawdown' in str(state.halt_reason):
+        if state.halted and state.halt_reason and 'drawdown' in state.halt_reason:
             print(f'CIRCUIT BREAKER {reason}, flattening to cash')
             mtm_prices = {}
             for sym in list(state.positions.keys()):
@@ -401,19 +399,12 @@ if current_dd > CONFIG.max_drawdown_pct:
 # Optional: regime quality report (uncomment or pass --regime-stats)
 if 'prices' in dir() and len(prices) > 0:
     try:
-        from engine import load_screened_universe, analyze_regime_quality, print_regime_stats
-        # Rebuild quick market proxy for the run
-        closes = []
-        for df in prices.values():
-            if len(df) > 0:
-                closes.append(df['close'].iloc[-60:].reset_index(drop=True))
-        if closes:
-            minl = min(len(c) for c in closes)
-            mkt = pd.concat([c.iloc[-minl:] for c in closes], axis=1).mean(axis=1)
-            if len(mkt) > 30:
-                stats = analyze_regime_quality(mkt, adx_threshold=22, vol_threshold=0.22, er_threshold=0.35)
-                print("\n=== Regime quality for this run ===")
-                print_regime_stats(stats)
+        from engine import analyze_regime_quality, print_regime_stats
+        mkt = market_proxy(prices, lookback=60)
+        if mkt is not None and len(mkt) > 30:
+            stats = analyze_regime_quality(mkt, adx_threshold=22, vol_threshold=0.22, er_threshold=0.35)
+            print("\n=== Regime quality for this run ===")
+            print_regime_stats(stats)
     except Exception as e:
         # Regime-stats report is optional; log failures instead of swallowing.
         print(f'WARN regime-stats report failed: {e!r}')

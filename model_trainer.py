@@ -35,7 +35,7 @@ except Exception:
 
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_DIR.mkdir(exist_ok=True)
-METRICS_FILE = MODEL_DIR / "latest_metrics.json"
+
 
 N_TREES = 200
 MAX_DEPTH = 4
@@ -51,6 +51,24 @@ def model_out_path(sym_tag: str) -> Path:
     if sym_tag == "BTC":
         return MODEL_DIR / "latest_xgb.json"
     return MODEL_DIR / f"{sym_tag.lower()}_xgb.json"
+
+
+def meta_out_path(sym_tag: str) -> Path:
+    """Where to serialize training metadata/metrics.
+
+    Mirrors model_out_path: BTC -> latest_meta.json / latest_metrics.json
+    (serving bot), any other symbol -> <sym>_meta.json / <sym>_metrics.json
+    so a non-BTC train never clobbers BTC's production metadata.
+    """
+    if sym_tag == "BTC":
+        return MODEL_DIR / "latest_meta.json"
+    return MODEL_DIR / f"{sym_tag.lower()}_meta.json"
+
+
+def metrics_out_path(sym_tag: str) -> Path:
+    if sym_tag == "BTC":
+        return MODEL_DIR / "latest_metrics.json"
+    return MODEL_DIR / f"{sym_tag.lower()}_metrics.json"
 
 
 def train_and_save(symbol=None) -> bool | None:
@@ -154,7 +172,7 @@ def train_and_save(symbol=None) -> bool | None:
         'use_multi_asset': bool(USE_MULTI_ASSET),
         'elapsed_sec': round(time.time() - t0, 1),
     }
-    meta_path = MODEL_DIR / 'latest_meta.json'
+    meta_path = meta_out_path(sym_tag)
     meta_path.write_text(json.dumps(meta, indent=2))
 
     # Save model — BTC default keeps latest_xgb.json (serving bot path);
@@ -174,8 +192,8 @@ def train_and_save(symbol=None) -> bool | None:
         "trees": int(best),
         "elapsed_sec": meta['elapsed_sec'],
     }
-    METRICS_FILE.write_text(json.dumps(metrics, indent=2))
-    print(f"  Metrics: {METRICS_FILE}")
+    metrics_out_path(sym_tag).write_text(json.dumps(metrics, indent=2))
+    print(f"  Metrics: {metrics_out_path(sym_tag)}")
     print(f"  Done in {metrics['elapsed_sec']:.1f}s")
     return True
 

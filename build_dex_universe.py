@@ -81,7 +81,11 @@ def build(networks, top_per_network, sleep):
             if page > 50:  # safety: ~25000 pools max
                 break
         print(f"  {net}: {len([k for k in seen if k[0]==net])} tokens so far")
-    df = pd.DataFrame(list(seen.values())).sort_values("vol24h", ascending=False)
+    df = pd.DataFrame(list(seen.values()))
+    if len(df):
+        df = df.sort_values("vol24h", ascending=False)
+    else:
+        df = pd.DataFrame(columns=["symbol", "network", "pool_address", "quote", "vol24h"])
     df.to_csv(OUT, index=False)
     print(f"\nDEX universe: {len(df)} unique tokens -> {OUT}")
     return df

@@ -480,6 +480,62 @@ def cost_aware_filter(probs, prev_pos, lam=None, cost=None):
 
 # ── PIPELINE ──────────────────────────────────────────────────────────
 
+def _train_fold(task):
+    """Top-level worker for the parallel walk-forward pool (must be picklable).
+
+    task = (fi, split, X, y). Trains one XGBoost model on the fold's train/val
+    windows, evaluates on test, applies the cost-aware filter. n_jobs=1 inside
+    the fit so cross-fold Pool parallelism (N_WORKERS_CPU) isn't oversubscribed.
+    Returns (fi, metrics_dict) so the caller can restore fold order.
+    """
+    fi, sp, X, y = task
+    if len(X[sp["train_idx"]]) < 100 or len(X[sp["test_idx"]]) < 10:
+        return fi, None
+    model = xgb.XGBClassifier(
+        objective="multi:softmax",
+        num_class=3,
+        max_depth=MAX_DEPTH,
+        learning_rate=LR,
+        n_estimators=N_TREES,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
+        n_jobs=1,  # Pool handles cross-fold parallelism
+        random_state=42,
+        early_stopping_rounds=30,
+        eval_metric="mlogloss",
+        class_weight="balanced",
+    )
+    model.fit(
+        X[sp["train_idx"]], y[sp["train_idx"]],
+        eval_set=[(X[sp["val_idx"]], y[sp["val_idx"]])],
+        verbose=False,
+    )
+    probs = model.predict_proba(X[sp["test_idx"]])
+    preds_raw = model.predict(X[sp["test_idx"]])
+    filtered_pos, margins, prev = [], [], 2
+    for p in probs:
+        prev = cost_aware_filter(p, prev)
+        filtered_pos.append(prev)
+        margins.append(float(p[1]) - float(p[0]))
+    filtered_pos = np.array(filtered_pos)
+    margins = np.array(margins)
+    y_te = y[sp["test_idx"]]
+    return fi, {
+        "fold": fi + 1,
+        "n_test": len(y_te),
+        "n_trades": int(np.sum(filtered_pos != 2)),
+        "accuracy": accuracy_score(y_te, preds_raw),
+        "f1_macro": f1_score(y_te, preds_raw, average="macro", zero_division=0),
+        "pct_trades": np.sum(filtered_pos != 2) / len(y_te) * 100,
+        "mean_margin": margins.mean(),
+        "min_margin": margins.min(),
+        "max_margin": margins.max(),
+        "required": LAMBDA * COST,
+    }
+
+
 def main():
     # 1. Load BTC 5m data
     df = fetch_data()
@@ -546,68 +602,19 @@ def main():
     splits = walk_forward_splits(df)
     print(f"Walk-forward folds: {len(splits)}")
 
+    # 7. Walk-forward — train folds in parallel (Pool over folds, n_jobs=1 per
+    #    fit so we don't oversubscribe). N_WORKERS_CPU = logical cores - 1.
+    from multiprocessing import Pool
+    tasks = [(fi, sp, X, y) for fi, sp in enumerate(splits)]
     fold_metrics = []
-    for fi, sp in enumerate(splits):
-        print(f"  Fold {fi+1}/{len(splits)}: train={len(sp['train_idx'])}, "
-              f"val={len(sp['val_idx'])}, test={len(sp['test_idx'])}")
-        X_tr, y_tr = X[sp["train_idx"]], y[sp["train_idx"]]
-        X_val, y_val = X[sp["val_idx"]], y[sp["val_idx"]]
-        X_te, y_te = X[sp["test_idx"]], y[sp["test_idx"]]
-        if len(X_tr) < 100 or len(X_te) < 10:
-            continue
-
-        model = xgb.XGBClassifier(
-            objective="multi:softmax",
-            num_class=3,
-            max_depth=4,
-            learning_rate=0.05,
-            n_estimators=300,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            reg_alpha=0.1,
-            reg_lambda=1.0,
-            n_jobs=_cfg.N_JOBS,  # physical cores - 1 (headroom for OS + control)
-            random_state=42,
-            early_stopping_rounds=30,
-            eval_metric="mlogloss",
-            class_weight="balanced",
-        )
-        model.fit(
-            X_tr, y_tr,
-            eval_set=[(X_val, y_val)],
-            verbose=False,
-        )
-        best_trees = getattr(model, "best_ntree_limit", None) or model.n_estimators
-        print(f"    Trained ({best_trees} trees)")
-
-        probs = model.predict_proba(X_te)
-        preds_raw = model.predict(X_te)
-
-        filtered_pos = []
-        margins = []
-        prev = 2
-        for p in probs:
-            prev = cost_aware_filter(p, prev)
-            filtered_pos.append(prev)
-            margins.append(float(p[1]) - float(p[0]))
-        filtered_pos = np.array(filtered_pos)
-        margins = np.array(margins)
-
-        acc = accuracy_score(y_te, preds_raw)
-        f1 = f1_score(y_te, preds_raw, average="macro", zero_division=0)
-        n_trades = np.sum(filtered_pos != 2)
-        fold_metrics.append({
-            "fold": fi + 1,
-            "n_test": len(y_te),
-            "n_trades": n_trades,
-            "accuracy": acc,
-            "f1_macro": f1,
-            "pct_trades": n_trades / len(y_te) * 100,
-            "mean_margin": margins.mean(),
-            "min_margin": margins.min(),
-            "max_margin": margins.max(),
-            "required": LAMBDA * COST,
-        })
+    with Pool(_cfg.N_WORKERS_CPU) as pool:
+        for fi, m in pool.map(_train_fold, tasks):
+            if m is None:
+                print(f"  Fold {fi+1}/{len(splits)}: skipped (too few bars)")
+                continue
+            fold_metrics.append(m)
+            print(f"  Fold {m['fold']}/{len(splits)}: n_test={m['n_test']}, "
+                  f"acc={m['accuracy']:.3f}, trades={m['n_trades']}")
 
     metrics_df = pd.DataFrame(fold_metrics)
     if metrics_df.empty:

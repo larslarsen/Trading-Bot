@@ -60,33 +60,25 @@ DEX_TOKENS = {
 DEEP_ENOUGH = pd.Timestamp("2023-01-01")
 
 
-def _get(url, sleep=1.0):
-    for attempt in range(4):
-        def _get(url, tries=5):
-            last = None
-            for i in range(tries):
-                try:
-                    req = urllib.request.Request(url, headers=UA)
-                    with urllib.request.urlopen(req, timeout=30) as r:
-                        return json.loads(r.read())
-                except urllib.error.HTTPError as e:
-                    last = e
-                    if e.code in (429, 500, 502, 503, 504):
-                        wait = 5 * (2 ** i)  # 5,10,20,40,80s backoff
-                        print(f"    HTTP {e.code} -> backoff {wait}s")
-                        time.sleep(wait)
-                        continue
-                    raise
-                except Exception as e:
-                    last = e
-                    time.sleep(5)
-            raise last if last else RuntimeError("get failed")
+def _get(url, tries=5):
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())
         except urllib.error.HTTPError as e:
-            if e.code == 429:
-                time.sleep(sleep * (2 ** attempt) + 1)  # exponential backoff
+            last = e
+            if e.code in (429, 500, 502, 503, 504):
+                wait = 5 * (2 ** i)  # 5,10,20,40,80s backoff
+                print(f"    HTTP {e.code} -> backoff {wait}s")
+                time.sleep(wait)
                 continue
             raise
-    raise RuntimeError(f"failed after retries: {url}")
+        except Exception as e:
+            last = e
+            time.sleep(5)
+    raise last if last else RuntimeError("get failed")
 
 
 def resolve_top_pool(chain, contract):

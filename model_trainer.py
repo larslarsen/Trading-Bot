@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import argparse
 """
 Weekly retrain + model serializer.
 Trains XGBoost on the latest expanding window and saves the model
@@ -40,13 +41,29 @@ N_TREES = 200
 MAX_DEPTH = 4
 
 
-def train_and_save():
-    """Train on latest expanding window, save model JSON."""
+def model_out_path(sym_tag: str) -> Path:
+    """Where to serialize a trained model.
+
+    BTC keeps models/latest_xgb.json (the path the serving bot consumes).
+    Any other symbol writes models/<sym>_xgb.json so it never clobbers BTC's
+    production model.
+    """
+    if sym_tag == "BTC":
+        return MODEL_DIR / "latest_xgb.json"
+    return MODEL_DIR / f"{sym_tag.lower()}_xgb.json"
+
+
+def train_and_save(symbol=None) -> bool | None:
+    """Train on latest expanding window, save model JSON.
+    `symbol` (default BTC) selects the 5m history file; non-BTC models are
+    saved to models/<sym>_xgb.json so they never clobber BTC's latest_xgb.json
+    (which the serving bot consumes)."""
     t0 = time.time()
-    print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Weekly retrain starting...")
+    sym_tag = (symbol or "BTC").upper().replace("/", "")
+    print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Train starting for {sym_tag}...")
 
     # Load data
-    df = fetch_data()
+    df = fetch_data(symbol)
     tf = add_resampled_features(df)
     df = df.join(tf, how="left")
     macro = load_macro_data(df.index)
@@ -140,8 +157,9 @@ def train_and_save():
     meta_path = MODEL_DIR / 'latest_meta.json'
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    # Save model
-    out_path = MODEL_DIR / "latest_xgb.json"
+    # Save model — BTC default keeps latest_xgb.json (serving bot path);
+    # any other symbol gets its own models/<sym>_xgb.json to avoid clobber.
+    out_path = model_out_path(sym_tag)
     model.save_model(str(out_path))
     print(f"  Model saved: {out_path} ({out_path.stat().st_size/1024:.1f} KB)")
     print(f"  Meta saved: {meta_path}")
@@ -163,4 +181,7 @@ def train_and_save():
 
 
 if __name__ == "__main__":
-    train_and_save()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--symbol", default="BTC", help="pair to train (default BTC). e.g. DOGE")
+    args = ap.parse_args()
+    train_and_save(symbol=args.symbol)

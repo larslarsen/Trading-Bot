@@ -20,6 +20,8 @@ import warnings
 warnings.filterwarnings("ignore")
 import config as _cfg  # N_JOBS = physical cores - 1 (leave headroom)
 
+ROOT = Path(__file__).parent
+
 # ── CONFIG ─────────────────────────────────────────────────────────────
 SYMBOL       = "BTC/USDT"
 TIMEFRAME    = "5m"
@@ -134,9 +136,32 @@ ALL_FEATURES = (
 
 # ── DATA LOADING ────────────────────────────────────────────────────────
 
-def fetch_data():
-    print(f"Loading {DATA_FILE}...")
-    df = pd.read_csv(DATA_FILE, parse_dates=["ts"])
+def fetch_data(symbol: str | None = None) -> pd.DataFrame:
+    """Load the 5m OHLCV for `symbol` (default: BTC). Asset-selectable so the
+    same ML pipeline trains on any pair we have 5m history for.
+
+    BTC 5m lives at repo root (btc_5m.csv); every other pair lives under data/
+    as <SYM>USDT_5m(_max).csv (deep Binance/MEXC backfill) or the shallower
+    <SYM>USDT_5m_blofin_max.csv. The first existing candidate wins.
+    """
+    if symbol is None or symbol.upper() in ("BTC", "BTC/USDT"):
+        path = DATA_FILE
+    else:
+        stem = symbol.upper().replace("/", "").replace("USDT", "")
+        # ordered by depth: prefer the deep backfill, fall back to BloFin
+        candidates = [
+            ROOT / "data" / f"{stem}USDT_5m_max.csv",
+            ROOT / "data" / f"{stem}USDT_5m_blofin_max.csv",
+            ROOT / "data" / f"{stem}USDC_5m_blofin_max.csv",
+            ROOT / f"{stem.lower()}_5m.csv",
+        ]
+        path = next((p for p in candidates if p.exists()), None)
+        if path is None:
+            raise FileNotFoundError(
+                f"No 5m history for {symbol}. Looked for: "
+                + ", ".join(str(c) for c in candidates))
+    print(f"Loading {path}...")
+    df = pd.read_csv(path, parse_dates=["ts"])
     df.set_index("ts", inplace=True)
     df.index = pd.to_datetime(df.index, utc=True)
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")

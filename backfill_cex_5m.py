@@ -87,6 +87,7 @@ def backfill_symbol(stem: str, mem_limit: int) -> int:
     #    resume from just after its last ts.
     #  - else (no file) -> start from 2020.
     start_dt = None
+    floor_ts = None  # newest bar already on disk; appended windows are filtered to ts > floor_ts
     if out.exists():
         try:
             prev = pd.read_csv(out)
@@ -97,11 +98,11 @@ def backfill_symbol(stem: str, mem_limit: int) -> int:
                     print(f"  {sym}: up to date (last {last_ts.date()}), skip")
                     return 0
                 start_dt = last_ts + pd.Timedelta(minutes=5)
+                floor_ts = last_ts
         except Exception:
             pass
     if start_dt is None:
         start_dt = pd.Timestamp("2020-01-01", tz="UTC")
-
     start_ms = int(start_dt.timestamp() * 1000)
     now_ms = int(time.time() * 1000)
     written = 0
@@ -120,6 +121,14 @@ def backfill_symbol(stem: str, mem_limit: int) -> int:
             start_ms += WINDOW_MS
             time.sleep(0.25)
             continue
+        # never re-append bars already on disk (prevents duplicate accumulation
+        # across resume runs, which previously duplicated ~63% of DOGE).
+        if floor_ts is not None:
+            df = df[df["ts"] > floor_ts.strftime("%Y-%m-%d %H:%M:%S+0000")]
+        if df.empty:
+            start_ms += WINDOW_MS
+            time.sleep(0.25)
+            continue
         # append incrementally
         df.to_csv(out, mode="a", header=first, index=False)
         first = False
@@ -127,6 +136,7 @@ def backfill_symbol(stem: str, mem_limit: int) -> int:
         # advance by a full 5m bar (not +1ms) so the next window's first bar
         # does not collide with this window's last on whole-second ts formatting
         start_ms = int(pd.to_datetime(df["ts"].iloc[-1], utc=True).timestamp() * 1000) + 300000
+        floor_ts = pd.to_datetime(df["ts"].iloc[-1], utc=True)  # track newest written bar
         time.sleep(0.25)
         if written > 1_000_000:
             break

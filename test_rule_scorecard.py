@@ -43,6 +43,10 @@ CANDIDATES = [
 ]
 
 
+# Walk-forward slice geometry (shared with test_significance_pit)
+TRAIN, STEP, OOS = 60, 12, 12
+
+
 def load_common(n_min=150, as_of=None):
     cd = load_screened_universe(min_bars=n_min, as_of=as_of)
     data = {s: d.set_index("ts").sort_index() for s, d in cd.items()}
@@ -120,7 +124,7 @@ def run_strategy(data, dates, chop_rule, combo=False, fill_rule="ma30_ema"):
     wins = sum(1 for t in eng.trades if t.get("pnl", 0) > 0)
     winrate = (wins / len(eng.trades) * 100) if eng.trades else 0.0
     return {"ret": ret, "effSR": eff_sr, "maxDD": mdd * 100, "calmar": calmar,
-            "win%": winrate, "trades": len(eng.trades)}
+            "win%": winrate, "trades": len(eng.trades), "rets": rets}
 
 
 def sign_test_p(a_vals, b_vals):
@@ -146,11 +150,10 @@ def main():
     # today's survivor list. This is the literature-correct methodology.
     PIT = True
     data0, dates = load_common(n_min=150)   # full survivor set, only for the date axis
-    train, step, oos = 60, 12, 12
     slices = []
-    i = train
-    while i + oos <= len(dates):
-        slices.append(dates[i:i + oos]); i += step
+    i = TRAIN
+    while i + OOS <= len(dates):
+        slices.append(dates[i:i + OOS]); i += STEP
     mode = "PIT (point-in-time, survivorship-corrected)" if PIT else "survivor (today's list)"
     print(f"UPGRADED rule scorecard: {len(CANDIDATES)} candidates, {len(slices)} WF slices, mode={mode}\n")
     res = {c[0]: [] for c in CANDIDATES}

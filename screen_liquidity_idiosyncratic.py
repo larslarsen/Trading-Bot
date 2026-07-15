@@ -7,12 +7,18 @@ UNIVERSE = ROOT / 'universe_broad.csv'
 OUT = Path('backtest_output')
 
 
-def run_screen():
+def run_screen(universe_csv=None, out_csv=None):
     """Recompute the live screened universe (top-idio-vol 20% per tier) from the
     current broad universe + local OHLCV. Local-only (no network). Writes a
-    timestamped screen CSV consumed by the trader/collector. Returns the path."""
+    timestamped screen CSV consumed by the trader/collector. Returns the path.
+
+    universe_csv: override the input broad-universe CSV (used by the PIT
+      backfill to screen a historical universe snapshot). Default = UNIVERSE.
+    out_csv: override the output path (backfill writes screen_liqu_idio_<date>.csv).
+    """
+    u_path = Path(universe_csv) if universe_csv else UNIVERSE
     # Load universe
-    u = pd.read_csv(UNIVERSE)
+    u = pd.read_csv(u_path)
     u = u.dropna(subset=['symbol'])
     u['symbol'] = u['symbol'].astype(str).str.strip()
     u['tier'] = u['tier'].fillna('unknown').str.strip().str.lower()
@@ -73,7 +79,7 @@ def run_screen():
     print('\n=== Top idiosyncratic vol by tier ===')
     print(selected[['symbol', 'tier', 'bars', 'adv', 'idio_vol']].head(20).to_string(index=False))
 
-    out_csv = OUT / f'screen_liqu_idio_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv'
+    out_csv = Path(out_csv) if out_csv else (OUT / f'screen_liqu_idio_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv')
     selected.to_csv(out_csv, index=False)
     print(f'\nSaved {out_csv}')
     return out_csv

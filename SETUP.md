@@ -107,7 +107,62 @@ Positions still on the screen are managed normally to their signal exit.
 
 ---
 
-## 4. CPU cores — `TRADING_BOT_CORES`
+## 4. DEX universe (GeckoTerminal, free) + MTF poller requirement
+
+DEX data comes from **GeckoTerminal's free public API** (no key). Two scripts:
+
+- `build_dex_universe.py` — ranks top DEX pools by 24h volume across chains
+  (eth, base, bsc, arbitrum, polygon, solana), dedupe to the highest-volume
+  pool per token, writes `dex_universe.csv`. Data-driven, **low-cap-inclusive**
+  (retail alts rank by volume). Re-runnable.
+- `backfill_dex_history.py` — reads `dex_universe.csv`, fetches daily OHLC per
+  token -> `dex_data/<SYM>_1d_max.csv` (same format as CEX `data/`). Free tier
+  caps ~181 bars (~6mo) per pool + 429-rate-limits; `fetch_ohlcv` retries with
+  exponential backoff, and the run is resume-safe (skips already-deep files).
+
+Daily cron (rebuild universe + backfill), so DEX stays current:
+
+```
+17 3 * * *  cd /home/lars/trading-bot && source .venv/bin/activate && \
+  python -u build_dex_universe.py --top-per-network 200 \
+    --networks eth,base,bsc,arbitrum,polygon,solana --sleep 1.0 >> /tmp/dex_univ_cron.log 2>&1 && \
+  python -u backfill_dex_history.py --sleep 2.5 >> /tmp/dex_fill_cron.log 2>&1
+```
+
+(03:17 UTC, no collision with the 00:05 trader or Sun-11:37 CoinGecko jobs.)
+
+> Both `dex_universe.csv` and `dex_data/` are **gitignored** — they are local
+> caches, regenerable by re-running the scripts. Never commit them.
+
+### MTF / short-timeframe requirement (NOT yet built — design only)
+
+The daily cron is correct for the **daily** paper trader. When we move to
+**MTF (1h/4h) or short-timeframe (1m/5m) DEX trading**, universe freshness must
+tighten, because a hot low-cap can 10x within minutes and a daily refresh would
+miss the entire move. Two distinct concerns:
+
+1. **Universe membership** (what tokens exist, top-by-volume): for MTF, refresh
+   on a tighter schedule (e.g. every 1–4h via cron, or called at MTF session
+   start) — reuses `build_dex_universe.py`.
+2. **Per-trade liquidity / rug sanity** (is *this* token tradeable RIGHT NOW):
+   must be a **lightweight probe inside the poller's entry path**, not a full
+   universe rebuild. Before acting on a signal, the bot calls a
+   `dex_liquidity_ok(symbol)` check (one GeckoTerminal pool call for current
+   24h volume + that the pool isn't dead/rugged). This is the "constant update"
+   for short timeframes — cheap (one request per candidate), API-friendly
+   (doesn't hammer the free API with full rebuilds), and always-fresh at the
+   decision point even if the cached universe is stale.
+
+**Do NOT** rebuild the full 458-token universe constantly — that melts the free
+API. Pattern: *stale universe for candidacy + fresh per-token validation at the
+decision point.* Write `dex_liquidity_ok()` + a `refresh_dex_universe()` hook
+when the MTF DEX bot is actually built (MTF 4h depth matures ~Oct 2026; free
+DEX history is only ~6mo, so MTF DEX backtesting also needs paid CoinGecko
+first).
+
+---
+
+## 5. CPU cores — `TRADING_BOT_CORES`
 
 The model trainer / walk-forward / grid workers size their parallelism from a
 single setting in `config.py`:
@@ -137,7 +192,7 @@ python -c "import config; print(config.N_PHYSICAL_CORES, config.N_JOBS)"
 
 ---
 
-## 5. First-deploy checklist
+## 6. First-deploy checklist
 
 - [ ] `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
 - [ ] `crontab -l` shows the `5 0 * * *` paper-trader line

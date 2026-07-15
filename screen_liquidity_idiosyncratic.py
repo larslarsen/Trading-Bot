@@ -60,6 +60,14 @@ def run_screen(universe_csv=None, out_csv=None):
             continue
 
     screen = pd.DataFrame(rows)
+    if screen.empty:
+        # No universe coins had local bars (e.g. a backfilled historical snapshot
+        # with zero overlap with collected data). Write an empty screen rather
+        # than crashing — load_screened_universe handles an empty universe fine.
+        out_csv = Path(out_csv) if out_csv else (OUT / f'screen_liqu_idio_{pd.Timestamp.now():%Y%m%d_%H%M%S}.csv')
+        screen.to_csv(out_csv, index=False)
+        print(f'\nNo coins with local bars in universe; wrote empty screen {out_csv}')
+        return out_csv
     screen['adv_rank'] = screen['adv'].rank(pct=True)
 
     # Liquidity filter: top 500 by ADV

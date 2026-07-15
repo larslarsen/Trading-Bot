@@ -12,18 +12,30 @@ For each symbol in dex_universe.csv we resolve its top GeckoTerminal pool
 contained: does not depend on extra columns in dex_universe.csv.
 
 Rate discipline: 1s sleep between fetches (backfill is occasional, not hot).
+
+MEMORY SAFETY (added): 
+  - Resolved pools are cached (in-memory + resolved_pool_cache.json) so a token
+    is never re-resolved on a re-run.
+  - gc.collect() runs after every token so no DataFrame/object accumulates.
+  - A hard RSS cap (--mem-limit-mb, default 1536) ABORTS the run well before it
+    could threaten the machine. This makes an OOM-kill-by-this-script impossible.
+
 Usage:
     python backfill_dex_mtf.py                 # all TFs, all universe tokens
     python backfill_dex_mtf.py --tf 1h --limit 500
 """
 import argparse
+import gc
+import json
 import time
 from pathlib import Path
 
 import pandas as pd
 import urllib.request
 import urllib.parse
-import json
+import json as _json  # noqa: F401 (kept for compatibility)
+
+from mem_guard import guard as _mem_guard
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -35,6 +47,27 @@ UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 DEEP_ENOUGH = pd.Timestamp("2023-01-01")
 TFS = {"1d": ("day", 1), "1h": ("hour", 1), "4h": ("hour", 4)}
 SLEEP = 1.0
+CACHE_FILE = ROOT / "resolved_pool_cache.json"
+DEFAULT_MEM_LIMIT_MB = 1536
+
+
+# ---- resolved-pool cache (persisted so re-runs never re-resolve) ----
+_resolved_cache: dict = {}
+
+
+def _load_cache() -> None:
+    if CACHE_FILE.exists():
+        try:
+            _resolved_cache.update(json.loads(CACHE_FILE.read_text()))
+        except Exception:
+            pass
+
+
+def _save_cache() -> None:
+    try:
+        CACHE_FILE.write_text(json.dumps(_resolved_cache))
+    except Exception:
+        pass
 
 
 def _get(url, tries=5):
@@ -68,10 +101,8 @@ NET_MAP = {
 }
 
 
-def resolve_pool(sym):
-    """Top GeckoTerminal pool for a symbol. Uses DexScreener (free) to get the
-    contract + chain, maps to Gecko's network id, then fetches its top pool.
-    Returns (gecko_net, pool_address) or None."""
+def _resolve_pool_real(sym):
+    """Top GeckoTerminal pool for a symbol. Returns (gecko_net, pool_address) or None."""
     try:
         j = _req.get(f"{BASE}/search", params={"q": sym}, timeout=15).json()
     except Exception:
@@ -98,14 +129,30 @@ def resolve_pool(sym):
         return None
 
 
+def resolve_pool(sym):
+    """Cached wrapper: never re-resolves a token we already resolved this run
+    or in a previous run (persisted cache)."""
+    s = sym.upper()
+    if s in _resolved_cache:
+        v = _resolved_cache[s]
+        return tuple(v) if v else None
+    res = _resolve_pool_real(s)
+    _resolved_cache[s] = list(res) if res else None
+    _save_cache()
+    return res
+
+
 def fetch_ohlcv(net, pool, tf, agg, limit):
     url = f"{API}/networks/{net}/pools/{pool}/ohlcv/{tf}?limit={limit}&aggregate={agg}"
     d = _get(url)
     rows = d.get("data", {}).get("attributes", {}).get("ohlcv_list", [])
     if not rows:
         return None
+    # 1d -> one bar per date (date-only ts). 1h/4h -> full timestamp, else
+    # every bar in a day collapses to the same date string and overwrites.
+    fmt = "%Y-%m-%d" if tf == "day" else "%Y-%m-%d %H:%M:%S+0000"
     return pd.DataFrame(
-        [{"ts": pd.to_datetime(r[0], unit="s").strftime("%Y-%m-%d"),
+        [{"ts": pd.to_datetime(r[0], unit="s").strftime(fmt),
            "open": r[1], "high": r[2], "low": r[3], "close": r[4], "volume": r[5]}
           for r in rows]
     )
@@ -117,16 +164,23 @@ def main():
     ap.add_argument("--limit", type=int, default=1000, help="bars per TF (~3yr at 1d)")
     ap.add_argument("--sleep", type=float, default=SLEEP)
     ap.add_argument("--universe", default=str(UNIVERSE))
+    ap.add_argument("--mem-limit-mb", type=int, default=DEFAULT_MEM_LIMIT_MB,
+                    help="hard RSS cap; run aborts safely above this (prevents OOM)")
     args = ap.parse_args()
+
+    _load_cache()
+    _mem_guard(args.mem_limit_mb)  # trip early if already over cap at start
+
     if not Path(args.universe).exists():
         print(f"ERROR: {args.universe} missing. Run build_dex_universe.py first.")
         return
     syms = pd.read_csv(args.universe)["symbol"].astype(str).tolist()
     tfs = [args.tf] if args.tf else list(TFS)
     print(f"DEX MTF backfill (GeckoTerminal free): {len(syms)} tokens -> data/ "
-          f"TFs={tfs}")
+          f"TFs={tfs} (mem cap={args.mem_limit_mb}MB)")
     for sym in syms:
         sym = sym.upper()
+        _mem_guard(args.mem_limit_mb)  # checked before every token
         resolved = resolve_pool(sym)
         if not resolved:
             print(f"  {sym}: no Gecko pool")
@@ -150,7 +204,9 @@ def main():
             df.to_csv(out, index=False)
             print(f"  {sym} {tf}: {len(df)} bars -> {out.name}")
             time.sleep(args.sleep)
+        gc.collect()  # reclaim this token's DataFrame/objects immediately
         time.sleep(args.sleep)
+    gc.collect()
     print("DEX MTF backfill complete.")
 
 

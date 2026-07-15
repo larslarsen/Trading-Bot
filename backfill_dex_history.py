@@ -12,10 +12,14 @@ For each token in dex_universe.csv (symbol, network, pool_address):
   - normalize to ts,open,high,low,close,volume -> dex_data/<SYM>_1d_max.csv
 Resume: skip tokens already <= 2023-01-01. Rate-limit: 1s between calls.
 
+MEMORY SAFETY (added): gc.collect() per token + a hard RSS cap (--mem-limit-mb,
+default 1536) that aborts the run safely before it could threaten the machine.
+
 Usage:
     python backfill_dex_history.py [--sleep 1.0] [--chain eth] [--limit 1000]
 """
 import argparse
+import gc
 import json
 import time
 from pathlib import Path
@@ -23,11 +27,14 @@ from pathlib import Path
 import pandas as pd
 import urllib.request
 
+from mem_guard import guard as _mem_guard
+
 DEX = Path("dex_data")
 DEX.mkdir(exist_ok=True)
 API = "https://api.geckoterminal.com/api/v2"
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 DEEP_ENOUGH = pd.Timestamp("2023-01-01")
+DEFAULT_MEM_LIMIT_MB = 1536
 
 
 def _get(url, tries=5):
@@ -70,15 +77,22 @@ def main():
     ap.add_argument("--chain", default="eth")
     ap.add_argument("--limit", type=int, default=1000, help="daily bars per token (~3yr)")
     ap.add_argument("--universe", default="dex_universe.csv")
+    ap.add_argument("--mem-limit-mb", type=int, default=DEFAULT_MEM_LIMIT_MB,
+                    help="hard RSS cap; run aborts safely above this (prevents OOM)")
     args = ap.parse_args()
+
+    _mem_guard(args.mem_limit_mb)
+
     uni = Path(args.universe)
     if not uni.exists():
         print(f"ERROR: {uni} not found. Run build_dex_universe.py first.")
         return
     udf = pd.read_csv(uni)
-    print(f"DEX history backfill (GeckoTerminal, free): {len(udf)} tokens from {uni} -> dex_data/")
+    print(f"DEX history backfill (GeckoTerminal, free): {len(udf)} tokens from {uni} "
+          f"-> dex_data/ (mem cap={args.mem_limit_mb}MB)")
     done = skipped = 0
     for _, row in udf.iterrows():
+        _mem_guard(args.mem_limit_mb)  # checked before every token
         sym = str(row["symbol"]).upper()
         net = str(row["network"])
         pool = str(row["pool_address"])
@@ -94,11 +108,14 @@ def main():
         if df is None or len(df) == 0:
             print(f"  {sym}: no OHLC")
             time.sleep(args.sleep)
+            gc.collect()
             continue
         df.to_csv(out, index=False)
         done += 1
         print(f"  {sym}: {len(df)} bars -> {out.name} earliest={df['ts'].min()}")
         time.sleep(args.sleep)
+        gc.collect()  # reclaim this token's DataFrame immediately
+    gc.collect()
     print(f"\nDEX backfill complete: {done} tokens, {skipped} already deep (skipped).")
 
 

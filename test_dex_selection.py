@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from test_rule_scorecard import run_strategy, TRAIN, STEP, OOS
+import config as cfg  # LOGICAL_CORES for pure-CPU work, PHYSICAL_CORES for BW-bound
 
 DEX = Path("dex_data")
 MIN_BARS = TRAIN + OOS
@@ -60,7 +61,8 @@ def main():
     if len(coins) < 5:
         print("Too few coins. Aborting."); return
     items = list(coins.items())
-    with Pool() as pool:
+    # Pure-CPU replay (no memory-bandwidth contention) -> use LOGICAL cores.
+    with Pool(cfg.LOGICAL_CORES) as pool:
         results = pool.map(_score, items)
     rows = [r for r in results if r is not None]
     rows.sort(key=lambda x: -x[1])

@@ -7,26 +7,47 @@ here, not in three files.
 """
 
 import os
+import subprocess
 from portfolio_engine import EngineConfig
 
 
 # ── Hardware (parallelism) ────────────────────────────────────────────────
-# Number of PHYSICAL CPU cores on the host. Drives n_jobs for the model
-# trainer / walk-forward / grid workers. Set via TRADING_BOT_CORES env var so
-# you can change it (e.g. after upgrading your CPU) without editing this file:
-#   export TRADING_BOT_CORES=8
-# Logical-core / hyperthread counts are NOT used: crypto feature pipelines are
-# memory-bandwidth bound, so oversubscribing to SMT threads just adds contention.
-# Fallback: half of os.cpu_count() (≈ physical cores on most consumer chips),
-# or 4 if detection fails.
+# Two numbers, detected automatically if you don't set them:
+#   PHYSICAL_CORES = real cores (hyperthreads/SMT excluded) — use for
+#                    memory-bandwidth-bound work (feature pipelines, model train).
+#   LOGICAL_CORES  = total threads incl. SMT — use for PURE CPU-bound work
+#                    (e.g. the DEX per-coin selection Pool, which is compute-only).
+#
+# To PIN a value (after a CPU upgrade), uncomment + set the matching line. The
+# TRADING_BOT_CORES env var still overrides PHYSICAL_CORES (back-compat).
+#
+# This host (Ryzen 5 5600X): 6 physical cores × 2 threads = 12 logical.
+# PHYSICAL_CORES = 6
+# LOGICAL_CORES  = 12
+
+def _detect_logical_cores() -> int:
+    return max(1, os.cpu_count() or 1)
+
 def _detect_physical_cores() -> int:
-    guess = (os.cpu_count() or 8) // 2
-    return max(1, guess)
+    # Try lscpu (Core(s) per socket × Socket(s)); fall back to logical//2.
+    try:
+        out = subprocess.check_output(["lscpu"], text=True, stderr=subprocess.DEVNULL)
+        cores = socks = None
+        for line in out.splitlines():
+            if line.startswith("Core(s) per socket:"):
+                cores = int(line.split(":")[1])
+            elif line.startswith("Socket(s):"):
+                socks = int(line.split(":")[1])
+        if cores and socks:
+            return max(1, cores * socks)
+    except Exception:
+        pass
+    return max(1, (_detect_logical_cores() // 2))
 
-
-N_PHYSICAL_CORES = int(os.environ.get("TRADING_BOT_CORES") or _detect_physical_cores())
-# Leave one core free for the system + the collector daemon.
-N_JOBS = max(1, N_PHYSICAL_CORES - 1)
+LOGICAL_CORES = _detect_logical_cores()
+PHYSICAL_CORES = int(os.environ.get("TRADING_BOT_CORES") or _detect_physical_cores())
+# Leave one physical core free for the OS + collector daemon.
+N_JOBS = max(1, PHYSICAL_CORES - 1)
 
 # ── Risk / cost (shared engine) ───────────────────────────────────────────
 CONFIG = EngineConfig(

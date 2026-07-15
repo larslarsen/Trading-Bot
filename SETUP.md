@@ -164,30 +164,31 @@ first).
 
 ## 5. CPU cores — `TRADING_BOT_CORES`
 
-The model trainer / walk-forward / grid workers size their parallelism from a
-single setting in `config.py`:
+The engine exposes two auto-detected numbers in `config.py`:
 
 ```python
-N_PHYSICAL_CORES = int(os.environ.get("TRADING_BOT_CORES") or _detect_physical_cores())
-N_JOBS = max(1, N_PHYSICAL_CORES - 1)   # leaves one core for OS + collector
+LOGICAL_CORES  = os.cpu_count()                       # all threads incl. SMT (this host: 12)
+PHYSICAL_CORES = lscpu Core(s) × Socket(s)           # real cores (this host: 6), or logical//2 fallback
+N_JOBS         = max(1, PHYSICAL_CORES - 1)           # leaves one core for OS + collector
 ```
 
-- We use **physical** cores, not logical/SMT threads — crypto feature
-  pipelines are memory-bandwidth bound, so oversubscribing to hyperthreads
-  just adds contention.
-- **After a CPU upgrade** (e.g. new Ryzen), set the env var — no code edit:
+- **PHYSICAL_CORES** drives `N_JOBS` for memory-bandwidth-bound work (model
+  trainer, feature pipelines, walk-forward). Hyperthreads don't help there.
+- **LOGICAL_CORES** is for PURE CPU-bound work (e.g. the DEX per-coin selection
+  `multiprocessing.Pool`) — SMT threads DO help there, so it uses all 12.
+- **Both auto-detect** — you only set something if you upgrade the CPU.
+  To pin, uncomment the `# PHYSICAL_CORES = 6` / `# LOGICAL_CORES = 12` lines in
+  `config.py`. The `TRADING_BOT_CORES` env var still overrides PHYSICAL_CORES
+  (back-compat):
 
 ```bash
 export TRADING_BOT_CORES=8      # in your shell profile / service env
 ```
 
-- If unset, it falls back to `os.cpu_count() // 2` (≈ physical cores on most
-  consumer chips; current host = Ryzen 5 5600X → 6 physical → N_JOBS = 5).
-
-Verify the resolved value:
+Verify the resolved values:
 
 ```bash
-python -c "import config; print(config.N_PHYSICAL_CORES, config.N_JOBS)"
+python -c "import config; print(config.LOGICAL_CORES, config.PHYSICAL_CORES, config.N_JOBS)"
 ```
 
 ---
@@ -198,5 +199,5 @@ python -c "import config; print(config.N_PHYSICAL_CORES, config.N_JOBS)"
 - [ ] `crontab -l` shows the `5 0 * * *` paper-trader line
 - [ ] `systemctl --user status collector-daemon` active
 - [ ] `sudo loginctl enable-linger lars` done (Linger=yes)
-- [ ] `export TRADING_BOT_CORES=<your physical cores>` in profile
-- [ ] Hermes cron job `22226284b0dc` left **paused**
+- [ ] `export TRADING_BOT_CORES=<your physical cores>` in profile (optional; auto-detected if unset)
+- [ ] system crontab shows `5 0 * * *` (CEX) AND `7 0 * * *` (DEX) paper-trader lines

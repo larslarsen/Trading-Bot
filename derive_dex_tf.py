@@ -61,7 +61,7 @@ def _resample(df5m: pd.DataFrame, rule: str) -> pd.DataFrame:
     return out.reset_index().rename(columns={"index": "ts"})
 
 
-def derive_token(sym: str, tfs, mem_limit: int) -> dict:
+def derive_token(sym: str, tfs: list, mem_limit: int) -> dict:
     sym = sym.upper()
     src = DATA / f"{sym}_5m_dex_max.csv"
     if not src.exists():
@@ -110,15 +110,14 @@ def derive_token(sym: str, tfs, mem_limit: int) -> dict:
             except Exception as e:
                 print(f"  {sym} {tf}: merge failed ({e}) — writing derived only")
         # no existing deep file: write derived fully
-        fmt = "%Y-%m-%d" if tf == "1d" else "%Y-%m-%d %H:%M:%S+0000"
-        r["ts"] = pd.to_datetime(r["ts"], utc=True).dt.strftime(fmt)
+        r["ts"] = pd.to_datetime(r["ts"], utc=True).dt.strftime(_detect_fmt(tf))
         r.to_csv(out, index=False)
         added[tf] = len(r)
         gc.collect()
     return added
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--token", default=None, help="single symbol (default: all with 5m data)")
     ap.add_argument("--tfs", nargs="+", choices=list(TFS), default=list(TFS))

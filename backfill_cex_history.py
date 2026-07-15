@@ -31,8 +31,15 @@ import pandas as pd
 
 ROOT = Path("data")
 SCR = Path("backtest_output")
-# Priority = deepest free daily history first (measured 2026-07-15).
-PRIORITY = ["bitfinex", "kucoin", "binance", "bybit", "htx", "hitbtc", "bitstamp"]
+# All reachable free public exchanges (no API key). Ordered deepest-first so the
+# union fills gaps with the longest history first, but EVERY exchange contributes
+# its bars -- breadth matters: a coin listed only on a shallow exchange (e.g.
+# bitget/okx/coinbase) is unreachable from the deep ones, so exclude none.
+# (gateio is not a ccxt class name; mexc is our live forward source but included
+# here for backfill completeness.)
+PRIORITY = ["bitfinex", "kucoin", "binance", "bybit", "htx", "hitbtc", "bitstamp",
+            "kraken", "okx", "bitget", "coinbase", "gemini", "upbit", "poloniex",
+            "bitmart", "bingx", "mexc"]
 DEEP_ENOUGH = pd.Timestamp("2023-01-01")  # skip symbols already this deep
 
 

@@ -28,6 +28,7 @@ from portfolio_engine import PortfolioEngine, EngineConfig
 
 import engine
 from engine import load_screened_universe, get_regime_signals, improved_compute_live_regime
+import config as _cfg  # N_WORKERS_CPU = logical cores - 1 (headroom)
 
 COST_BPS = 8.0 / 10000.0
 SLIP_BPS = 5.0 / 10000.0
@@ -41,6 +42,18 @@ CANDIDATES = [
     ("stochastic", "chop"), ("mfi", "chop"), ("ift_rsi", "chop"),
     ("d40+ma30_ema", "combo"),
 ]
+
+
+def _scorecard_task(task):
+    """Top-level worker for the parallel WF pool (must be picklable).
+
+    task = (cname, kind, seg, data); returns (cname, run_strategy result).
+    """
+    cname, kind, seg, data = task
+    combo = (kind == "combo")
+    chop_rule = "donchian40" if combo else cname
+    return cname, run_strategy(data, seg, chop_rule, combo=combo)
+
 
 
 # Walk-forward slice geometry (shared with test_significance_pit)
@@ -156,14 +169,22 @@ def main():
         slices.append(dates[i:i + OOS]); i += STEP
     mode = "PIT (point-in-time, survivorship-corrected)" if PIT else "survivor (today's list)"
     print(f"UPGRADED rule scorecard: {len(CANDIDATES)} candidates, {len(slices)} WF slices, mode={mode}\n")
+    # Precompute the PIT universe per slice ONCE (not per candidate inside the
+    # pool) so each worker gets ready data instead of reloading the universe.
+    # seg is a DatetimeIndex (unhashable) -> key by tuple(seg). load_common
+    # returns (data, dates); we only need data for the worker.
+    slice_data = {}
+    for seg in slices:
+        key = tuple(seg)
+        slice_data[key] = load_common(n_min=150, as_of=str(seg[0].date()))[0] if PIT else data0
     res = {c[0]: [] for c in CANDIDATES}
-    for cname, kind in CANDIDATES:
-        combo = (kind == "combo")
-        chop_rule = "donchian40" if combo else cname
-        for seg in slices:
-            # Per-slice PIT universe: screen as-of the slice's first day.
-            data, _ = load_common(n_min=150, as_of=str(seg[0].date())) if PIT else (data0, dates)
-            out = run_strategy(data, seg, chop_rule, combo=combo)
+
+    from multiprocessing import Pool
+
+    # task = (cname, kind, seg, data) — data precomputed above, picklable.
+    tasks = [(c[0], c[1], seg, slice_data[tuple(seg)]) for c in CANDIDATES for seg in slices]
+    with Pool(_cfg.N_WORKERS_CPU) as pool:
+        for cname, out in pool.map(_scorecard_task, tasks):
             res[cname].append(out)
     # Per-candidate aggregate table
     print(f"{'candidate':14s} {'meanRet':>8} {'worst':>7} {'pos/n':>6} {'meanEffSR':>9} {'meanDD':>7} {'meanCalmar':>11} {'meanWin%':>9}")

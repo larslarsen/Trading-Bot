@@ -56,13 +56,14 @@ def _score(args):
 
 def main():
     coins = load_all()
-    print(f"DEX per-coin SELECTION (parallel, {cpu_count()} cores): {len(coins)} coins "
+    print(f"DEX per-coin SELECTION (parallel, {cfg.N_WORKERS_CPU} workers = logical-1): {len(coins)} coins "
           f">= {MIN_BARS} bars (live rule: rei-trend/cci-chop + d40 fill)\n")
     if len(coins) < 5:
         print("Too few coins. Aborting."); return
     items = list(coins.items())
-    # Pure-CPU replay (no memory-bandwidth contention) -> use LOGICAL cores.
-    with Pool(cfg.LOGICAL_CORES) as pool:
+    # Pure-CPU replay (no memory-bandwidth contention) -> use LOGICAL cores
+    # minus one for system/control headroom.
+    with Pool(cfg.N_WORKERS_CPU) as pool:
         results = pool.map(_score, items)
     rows = [r for r in results if r is not None]
     rows.sort(key=lambda x: -x[1])

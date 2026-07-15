@@ -18,6 +18,7 @@ from multi_asset_features import add_multi_asset_features
 from equities_regime import build_equities_regime
 import warnings
 warnings.filterwarnings("ignore")
+import config as _cfg  # N_JOBS = physical cores - 1 (leave headroom)
 
 # ── CONFIG ─────────────────────────────────────────────────────────────
 SYMBOL       = "BTC/USDT"
@@ -565,7 +566,7 @@ def main():
             colsample_bytree=0.8,
             reg_alpha=0.1,
             reg_lambda=1.0,
-            n_jobs=6,
+            n_jobs=_cfg.N_JOBS,  # physical cores - 1 (headroom for OS + control)
             random_state=42,
             early_stopping_rounds=30,
             eval_metric="mlogloss",

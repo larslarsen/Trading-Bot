@@ -662,6 +662,8 @@ def compute_regime(
     method: str = "rule",   # "rule" | "hurst" | "hmm" | "hybrid" | "ma"
     hmm_model=None,
     hurst_window: int = 60,
+    ma_short: int = 50,
+    ma_long: int = 200,
     hurst_threshold: float = 0.5,
 ) -> str:
     """
@@ -727,7 +729,7 @@ def compute_regime(
 
     if method == "ma":
         # Use MA crossover as the regime filter (short MA > long MA = trend)
-        return ma_crossover_regime(close_market, cur, short=50, long=200)
+        return ma_crossover_regime(close_market, cur, short=ma_short, long=ma_long)
 
     if method == "choppiness":
         # Choppiness Index on the market proxy: CI high => chop, low => trend.
@@ -797,8 +799,16 @@ def improved_compute_live_regime(
     er_threshold: float = 0.35,
     method: str = "rule",
     hmm_model=None,
+    hysteresis_bars: "int | None" = None,
+    ma_short: int = 50,
+    ma_long: int = 200,
 ):
-    """Live-friendly wrapper around the improved regime logic using a mean-close market proxy."""
+    """Live-friendly wrapper around the improved regime logic using a mean-close market proxy.
+
+    hysteresis_bars=None -> use compute_regime's default (2). Pass an int to
+    cross-validate regime-switch persistence (wider = stickier = more lag).
+    ma_short/ma_long -> MA-crossover regime pair (method="ma"), the live lever.
+    """
     if not price_dfs:
         return "trend"
     closes = [df["close"].iloc[-lookback:].reset_index(drop=True) for df in price_dfs.values() if len(df) > 0]
@@ -809,14 +819,18 @@ def improved_compute_live_regime(
         return "trend"
     market = pd.concat([c.iloc[-min_len:] for c in closes], axis=1).mean(axis=1).reset_index(drop=True)
     idx = len(market) - 1
-    return compute_regime(
-        market, idx,
+    kw = dict(
         adx_threshold=adx_threshold,
         vol_threshold=vol_threshold,
         er_threshold=er_threshold,
         method=method,
         hmm_model=hmm_model,
+        ma_short=ma_short,
+        ma_long=ma_long,
     )
+    if hysteresis_bars is not None:
+        kw["hysteresis_bars"] = hysteresis_bars
+    return compute_regime(market, idx, **kw)
 
 
 

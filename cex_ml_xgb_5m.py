@@ -43,16 +43,11 @@ from order_manager_multi import MultiPositionState
 
 REPO = Path(__file__).parent
 MODELS_DIR = REPO / "models"
-
-# pair -> model file. BTC + DOGE to start; add more as single-pair models land.
-# The fetch symbol differs from the pair key for BTC (root btc_5m.csv vs the
-# data/<SYM>USDT_5m_max.csv convention) -- see FETCH_SYMBOL.
-PAIRS = {
-    "BTCUSDT": "latest_xgb.json",
-    "DOGEUSDT": "doge_xgb.json",
-}
-# pair key -> symbol string accepted by pipeline.fetch_data (BTC -> "BTC").
-FETCH_SYMBOL = {"BTCUSDT": "BTC", "DOGEUSDT": "DOGEUSDT"}
+# Screener: which models are ACTIVE at any given time. The bot auto-discovers
+# every models/<sym>_xgb.json, but only trades the pairs listed here. Edit this
+# file to reshuffle the universe without retraining. One pair per line, '#'
+# comments. Missing models are skipped at load.
+SCREENER_FILE = REPO / "screener_ml_multi.txt"
 
 POLL_SEC = 300
 STATE_FILE = REPO / "execution_state_ml_multi.json"
@@ -67,80 +62,174 @@ FEE_BP = 0.60
 SLIPPAGE_BP = 5
 SIZE_USD = 2000.0
 
+# ── model auto-discovery + screener ────────────────────────────────────────
+def discover_models():
+    """Return {pair: model_path} for every 5m single-pair model on disk.
+
+    Conventions:
+      - latest_xgb.json      -> BTCUSDT (BTC 5m model, serving-bot alias)
+      - <SYM>USDT_xgb.json   -> <SYM>USDT (e.g. doge_xgb.json -> DOGEUSDT)
+    Foreign bots' models (cex_1d_xgb.json, dex_xgb.json) are EXCLUDED -- they
+    are not 5m single-pair models for this multi-pair screener bot.
+    """
+    EXCLUDE = {"cex_1d_xgb.json", "dex_xgb.json"}  # other bots' models
+    found = {}
+    for p in MODELS_DIR.glob("*_xgb.json"):
+        if p.name in EXCLUDE:
+            continue
+        if p.name == "latest_xgb.json":
+            found["BTCUSDT"] = p
+            continue
+        sym = p.stem.replace("_xgb", "").upper()
+        pair = sym if sym.endswith("USDT") else f"{sym}USDT"
+        found[pair] = p
+    return found
+
+def load_screener():
+    """Pairs the bot should trade, from SCREENER_FILE (one per line)."""
+    if not SCREENER_FILE.exists():
+        return None  # None => trade ALL discovered models
+    pairs = []
+    for line in SCREENER_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pairs.append(line.upper())
+    return pairs
+
+def active_pairs():
+    """{pair: model_path} restricted to the screener (or all if no screener)."""
+    allm = discover_models()
+    screen = load_screener()
+    if screen is None:
+        return allm
+    return {p: allm[p] for p in screen if p in allm}
+
 
 def load_models():
-    """Load every pair's model once. Returns {pair: XGBClassifier}."""
+    """Load every ACTIVE pair's model once. Returns {pair: XGBClassifier}."""
     models = {}
-    for pair, fname in PAIRS.items():
-        p = MODELS_DIR / fname
-        if not p.exists():
-            print(f"[ml_multi] no model for {pair} ({fname}), skipping")
+    for pair, path in active_pairs().items():
+        if not path.exists():
+            print(f"[ml_multi] no model for {pair} ({path.name}), skipping")
             continue
         m = xgb.XGBClassifier()
-        m.load_model(str(p))
+        m.load_model(str(path))
         models[pair] = m
         print(f"[ml_multi] loaded {pair} model: n_features={getattr(m, 'n_features_in_', None)}")
     return models
 
 
-def build_features(symbol):
-    """Reproduce model_trainer.train_and_save's feature build for `symbol`."""
-    fsym = FETCH_SYMBOL.get(symbol, symbol)
-    df = fetch_data(fsym)
-    tf = add_resampled_features(df)
-    df = df.join(tf, how="left")
-    macro = load_macro_data(df.index)
-    df = add_macro_signals(df, macro)
-    multi_cols = []
-    if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
-        df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
-    # micro (Bybit CEX) -- optional, skip if unavailable
+def fetch_symbol(pair):
+    """Map a pair key to the symbol string pipeline.fetch_data accepts.
+    BTCUSDT -> 'BTC' (root btc_5m.csv); everything else -> the pair itself."""
+    return "BTC" if pair == "BTCUSDT" else pair
+
+
+# ── feature caching ────────────────────────────────────────────────────────
+# Global features (symbol-independent) are loaded ONCE. Per-symbol base frames
+# + per-symbol exogenous feeds are cached and invalidated when a new 5m bar
+# closes (so each poll reuses the prior build unless the data advanced).
+_GLOBAL_CACHE = {"ready": False, "macro": None, "dex": None, "multi": None}
+_SYM_CACHE = {}  # pair -> {"bar_ts": ts, "df": built_frame}
+
+
+def _load_globals():
+    if _GLOBAL_CACHE["ready"]:
+        return
+    # macro (static daily CSVs, symbol-independent)
     try:
-        from micro_features import load_micro
-        micro = load_micro(df.index)
-        if not micro.empty and micro.notna().any().any():
-            df = df.join(micro, how="left")
+        _GLOBAL_CACHE["macro"] = load_macro_data(pd.date_range("2010-01-01", periods=2, freq="D", tz="UTC"))
     except Exception:
-        pass
-    # NEW: deep-history Bybit funding rate (matches trainer wiring)
-    try:
-        from micro_features import load_funding
-        if "funding_rate" in df.columns:
-            df = df.drop(columns=["funding_rate"])
-        fund = load_funding(symbol, df.index)
-        if fund is not None and not fund.empty:
-            df = df.join(fund, how="left")
-    except Exception:
-        pass
-    # NEW: on-chain network metrics (matches trainer wiring)
-    try:
-        from onchain_features import load_onchain
-        oc = load_onchain(df.index, symbol)
-        if oc is not None and not oc.empty:
-            df = df.join(oc, how="left")
-    except Exception:
-        pass
-    # DEX-wide breadth -- optional; capture its columns (trainer includes them)
-    dex_cols = []
+        _GLOBAL_CACHE["macro"] = None
+    # DEX breadth (global)
     try:
         from dex_features import add_dex_features
-        df, dex_cols = add_dex_features(df)
+        _GLOBAL_CACHE["dex"] = add_dex_features
     except Exception:
-        pass
-    df = derive_features(df)
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df = df.loc[:, ~df.columns.duplicated()]
-    df = df.sort_index()
-    df = detect_regime(df)
-    features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
-    # NEW high-value exogenous features (funding + on-chain) if present
-    extra = ["funding_rate"] + [c for c in df.columns if c.startswith("oc_")]
-    for cand in extra:
-        if cand in df.columns:
-            features.append(cand)
-    df = df.dropna(subset=[c for c in features if df[c].notna().any()])
-    if df.empty:
+        _GLOBAL_CACHE["dex"] = None
+    # multi-asset cross features (global)
+    if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
+        _GLOBAL_CACHE["multi"] = MULTI_ASSET_FILE
+    else:
+        _GLOBAL_CACHE["multi"] = None
+    _GLOBAL_CACHE["ready"] = True
+
+
+def build_features(symbol):
+    """Reproduce model_trainer.train_and_save's feature build for `symbol`.
+    Cached: global features loaded once; per-symbol frame reused until a new
+    5m bar closes."""
+    fsym = fetch_symbol(symbol)
+    _load_globals()
+
+    # per-symbol cache key = timestamp of the last bar in the raw 5m series
+    raw = fetch_data(fsym)
+    if raw.empty:
         return None, None
+    bar_ts = int(raw.index[-1].timestamp())
+
+    if symbol in _SYM_CACHE and _SYM_CACHE[symbol]["bar_ts"] == bar_ts:
+        df = _SYM_CACHE[symbol]["df"]
+    else:
+        df = raw.copy()
+        tf = add_resampled_features(df)
+        df = df.join(tf, how="left")
+        if _GLOBAL_CACHE["macro"] is not None:
+            df = add_macro_signals(df, _GLOBAL_CACHE["macro"])
+        multi_cols = []
+        if _GLOBAL_CACHE["multi"] is not None:
+            df, multi_cols = add_multi_asset_features(df, _GLOBAL_CACHE["multi"])
+        # micro (Bybit CEX)
+        try:
+            from micro_features import load_micro
+            micro = load_micro(df.index)
+            if not micro.empty and micro.notna().any().any():
+                df = df.join(micro, how="left")
+        except Exception:
+            pass
+        # deep-history Bybit funding rate
+        try:
+            from micro_features import load_funding
+            if "funding_rate" in df.columns:
+                df = df.drop(columns=["funding_rate"])
+            fund = load_funding(symbol, df.index)
+            if fund is not None and not fund.empty:
+                df = df.join(fund, how="left")
+        except Exception:
+            pass
+        # on-chain network metrics
+        try:
+            from onchain_features import load_onchain
+            oc = load_onchain(df.index, symbol)
+            if oc is not None and not oc.empty:
+                df = df.join(oc, how="left")
+        except Exception:
+            pass
+        # DEX-wide breadth
+        dex_cols = []
+        if _GLOBAL_CACHE["dex"] is not None:
+            try:
+                df, dex_cols = _GLOBAL_CACHE["dex"](df)
+            except Exception:
+                dex_cols = []
+        df = derive_features(df)
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df = df.loc[:, ~df.columns.duplicated()]
+        df = df.sort_index()
+        df = detect_regime(df)
+        features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
+        extra = ["funding_rate"] + [c for c in df.columns if c.startswith("oc_")]
+        for cand in extra:
+            if cand in df.columns:
+                features.append(cand)
+        df = df.dropna(subset=[c for c in features if df[c].notna().any()])
+        if df.empty:
+            return None, None
+        _SYM_CACHE[symbol] = {"bar_ts": bar_ts, "df": df, "features": features}
+
+    df = _SYM_CACHE[symbol]["df"]
+    features = _SYM_CACHE[symbol]["features"]
     fvec = df[features].tail(1).copy()
     last_bar = df.tail(1).iloc[0]
     return fvec, last_bar
@@ -175,7 +264,7 @@ def predict_pair(model, fvec):
 
 def price_for(symbol):
     """Last close for a pair from its 5m history."""
-    df = fetch_data(FETCH_SYMBOL.get(symbol, symbol))
+    df = fetch_data(fetch_symbol(symbol))
     return float(df["close"].iloc[-1]) if not df.empty else None
 
 
@@ -250,6 +339,10 @@ def main():
         print("[ml_multi] no models loaded, exiting")
         return
     state = MultiPositionState(initial_capital=10000.0, state_file=STATE_FILE, journal_file=JOURNAL_FILE)
+    discovered = discover_models()
+    active = active_pairs()
+    print(f"[ml_multi] discovered models: {sorted(discovered.keys())}")
+    print(f"[ml_multi] screener active: {sorted(active.keys())}  (screener={SCREENER_FILE.name} exists={SCREENER_FILE.exists()})")
     print(f"[ml_multi] starting. pairs={list(models.keys())} max_positions={MAX_POSITIONS}")
     if args.once:
         run_once(models, state)

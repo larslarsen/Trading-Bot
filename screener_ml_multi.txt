@@ -1,0 +1,9 @@
+# ML multi-pair screener — which models the bot trades right now.
+# One pair per line. '#' = comment. Edit to reshuffle the universe without
+# retraining. Models are auto-discovered from models/<SYM>_xgb.json; pairs
+# listed here with no model on disk are skipped at load.
+# Blank/missing file => trade ALL discovered models.
+
+BTCUSDT
+ETHUSDT
+DOGEUSDT

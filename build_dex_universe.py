@@ -81,6 +81,30 @@ def build(networks, top_per_network, sleep):
             if page > 50:  # safety: ~25000 pools max
                 break
         print(f"  {net}: {len([k for k in seen if k[0]==net])} tokens so far")
+    # --- seed tokenized-stock / equities tokens (Robinhood-on-Arbitrum etc.)
+    # These rarely surface in volume-ranked pool scans but are high-signal
+    # retail-driven markets. Force-include via the same resolver the micro
+    # poller uses, so each lands on its real chain (robinhood/eth/bsc/...).
+    SEED_EQUITIES = ["NVDA", "AAPL", "TSLA", "GOOGL", "MSFT", "AMZN", "META",
+                     "HOOD", "COIN", "SPY", "QQQ", "DIA", "NVDL", "TSLL",
+                     "GOOGL", "NFLX", "AMD", "INTC", "BABA", "ORCL"]
+    try:
+        import dex_micro_poller as mpol
+        for tok in SEED_EQUITIES:
+            try:
+                res = mpol.resolve_address(tok)
+                if not res:
+                    continue
+                chain, addr = res
+                # pick a representative pool-less entry; micro poller resolves per-token
+                seen.setdefault((chain, tok), {"symbol": tok, "network": chain,
+                                                "pool_address": addr, "quote": "USDC",
+                                                "vol24h": 0.0})
+            except Exception:
+                pass
+        print(f"  seeded {len(SEED_EQUITIES)} equities tokens")
+    except Exception as e:
+        print(f"  equities seed ERR: {e!r}")
     df = pd.DataFrame(list(seen.values()))
     if len(df):
         df = df.sort_values("vol24h", ascending=False)
@@ -94,7 +118,7 @@ def build(networks, top_per_network, sleep):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top-per-network", type=int, default=500)
-    ap.add_argument("--networks", default="eth,base,bsc,arbitrum,polygon,solana")
+    ap.add_argument("--networks", default="eth,base,bsc,arbitrum,polygon,solana,robinhood")
     ap.add_argument("--sleep", type=float, default=1.0)
     args = ap.parse_args()
     nets = [n.strip() for n in args.networks.split(",") if n.strip()]

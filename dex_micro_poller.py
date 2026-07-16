@@ -54,7 +54,7 @@ def resolve_address(tok):
     if r.status_code != 200:
         return None
     pairs = (r.json() or {}).get("pairs") or []
-    PREF = {"ethereum": 0, "polygon": 1, "bsc": 2, "base": 3, "arbitrum": 4}
+    PREF = {"robinhood": 0, "ethereum": 1, "polygon": 2, "bsc": 3, "base": 4, "arbitrum": 5}
     norm = lambda s: (s or "").upper().lstrip("$").strip()
     q = norm(tok)
     exact = None      # best credible-chain EXACT-symbol match
@@ -81,7 +81,7 @@ def resolve_address(tok):
     return cg_resolve(tok)
 
 
-CG_PREF = {"ethereum": 0, "polygon": 1, "bsc": 2, "base": 3, "arbitrum": 4}
+CG_PREF = {"robinhood": 0, "ethereum": 1, "polygon": 2, "bsc": 3, "base": 4, "arbitrum": 5}
 
 
 def cg_resolve(tok):

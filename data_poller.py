@@ -216,6 +216,8 @@ def cex_extra_topup_worker(once):
                         start = last or int(pd.Timestamp("2021-01-01", tz="UTC").timestamp() * 1000)
                         if venue == "bybit":
                             rows, err = bco.bybit_klines(sym, start, 1000)
+                            # bybit returns 7 fields [ts,o,h,l,c,v,close_time]; keep 6
+                            rows = [r[:6] for r in rows] if rows else rows
                         elif venue == "okx":
                             # okx_klines walks backward from after_ms; use now to grab recent
                             rows, err = bco.okx_klines(sym.replace("-", ""), int(time.time() * 1000), 200)
@@ -223,7 +225,17 @@ def cex_extra_topup_worker(once):
                             rows, err = bfm.mexc_klines(sym, start)
                         if err or not rows:
                             continue
-                        df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
+                        # coerce each row to [ts(int-ms), o,h,l,c,v(float)]
+                        clean = []
+                        for r in rows:
+                            try:
+                                clean.append([int(float(r[0])), float(r[1]), float(r[2]),
+                                              float(r[3]), float(r[4]), float(r[5])])
+                            except Exception:
+                                pass
+                        if not clean:
+                            continue
+                        df = pd.DataFrame(clean, columns=["ts", "open", "high", "low", "close", "volume"])
                         df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
                         if tgt.exists():
                             old = pd.read_csv(tgt, parse_dates=["ts"]).set_index("ts")

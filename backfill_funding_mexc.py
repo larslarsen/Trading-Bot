@@ -32,7 +32,7 @@ DATA = REPO / "data"
 UA = {"User-Agent": "Mozilla/5.0 (research backfill)"}
 
 
-def fetch_json(url, timeout=30, tries=4):
+def fetch_json(url, timeout=15, tries=2):
     for i in range(tries):
         try:
             out = subprocess.run(["curl", "-s", "--max-time", str(timeout),

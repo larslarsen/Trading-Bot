@@ -34,9 +34,32 @@ add a row. Naming rule: `<venue>_<strategy>_<tf>` so logs/models are unambiguous
 - Journal files: `trade_journal_<venue>_<strategy>.json`
 - Log files: stdout -> `/tmp/<registry_name>.log` when run under cron
 
-## Cron jobs (active)
+## Data collection (systemd-managed, NOT cron)
+| Service file | Registry name | What it does | Coverage |
+|--------------|---------------|-------------|----------|
+| trading-bot-data.service (user systemd) | collect_all | ONE process, Restart=always, all free data all the time | see below |
+
+`data_poller.py` runs 4 concurrent worker threads and replaces all the old
+scattered data tools (ad-hoc background processes + the weekly cron DEX
+rebuild). systemd restarts it on crash (Restart=always, RestartSec=5) and
+starts it on login (enabled).
+- CEX worker: pulls 5m for all 459 USDT pairs (Binance klines mirror, no key)
+  -> data/cex/<SYM>_5m.csv, then derives 1h/4h/1d locally (derive_cex_tf).
+  Resumable cursor in data/.poller_state.json.
+- DEX micro worker: DexScreener + CoinGecko breadth poll -> data/dex_micro/
+  every 600s.
+- DEX forward worker: DexScreener 5m snapshot -> data/<SYM>_5m_dex_max.csv
+  every 300s.
+- DEX universe worker: build_dex_universe + backfill_dex_history weekly, so
+  the 426-token universe stays current.
+Logs: logs/data_poller.log. Commands:
+  systemctl --user status trading-bot-data; systemctl --user restart trading-bot-data
+
+## Cron jobs (active) -- trading bots only (data is systemd now)
 - weekly_model_retrain (train_ml_xgb): Sundays 00:00
-- dex_scout_poll: every 5m
-- weekly_liquidity_screen: Saturdays 00:00
 - (PAUSED) donchian_paper_trader (cex_donchian_1d): daily 14:00
 - (PAUSED) DEX paper trader (dex_screen_1d): daily 07:05
+- paper_trader_multi.py (cex_multi_screen_1d): daily 00:05 UTC (cron)
+- paper_trader_dex.py (dex_screen_1d): daily 00:07 UTC (cron)
+NOTE: the two paper_trader cron jobs are trading execution, not data. They
+could also be moved to systemd later; left on cron for now.

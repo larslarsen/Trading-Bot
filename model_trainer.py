@@ -108,6 +108,17 @@ def train_and_save(symbol=None) -> bool | None:
         print(f'  Loaded {len(micro.columns)} micro columns')
     else:
         print('  No usable micro data, continuing')
+    # DEX-wide cross-venue microstructure breadth (DexScreener poller output)
+    try:
+        from dex_features import add_dex_features
+        df, dex_cols = add_dex_features(df)
+        if dex_cols:
+            print(f'  Added {len(dex_cols)} DEX cross-venue features')
+        else:
+            dex_cols = []
+    except Exception as e:
+        print(f'  DEX features unavailable: {e}')
+        dex_cols = []
     df = derive_features(df)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
@@ -129,7 +140,7 @@ def train_and_save(symbol=None) -> bool | None:
     df = df.sort_index()
     df = detect_regime(df)
 
-    features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + ["regime_high_vol", "regime_trending"]
+    features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
     X = df[features].values
     y = df["label"].values
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

@@ -126,7 +126,7 @@ def main():
             row = {"ts": pd.Timestamp.now("UTC"), **rec}
             df = pd.DataFrame([row])
             if path.exists():
-                old = pd.read_csv(path)
+                old = pd.read_csv(path, parse_dates=["ts"])
                 df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
             df.to_csv(path, index=False)
             done += 1

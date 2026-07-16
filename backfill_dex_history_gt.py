@@ -86,8 +86,8 @@ def resolve_top_pool(tok):
     return (best[0], best[1], best[2]), None
 
 
-def gt_ohlcv(net, pool, tf="day", page=1, limit=1000):
-    url = f"{GT_API}/networks/{net}/pools/{pool}/ohlcv/{tf}?limit={limit}&page={page}"
+def gt_ohlcv(net, pool, tf="day", page=1, limit=1000, aggregate=1):
+    url = f"{GT_API}/networks/{net}/pools/{pool}/ohlcv/{tf}?limit={limit}&page={page}&aggregate={aggregate}"
     d, err = fetch_json(url)
     if err:
         return None, err

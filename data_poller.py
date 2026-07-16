@@ -128,9 +128,9 @@ def micro_worker(once):
                     rec, err = micro.poll_token(tok)
                     if rec is None:
                         continue
-                    row = {"ts": pd.Timestamp.now("UTC"), **rec}
+                    row = {"ts": pd.Timestamp.now("UTC"), "token": tok, **rec}
                     df = pd.DataFrame([row])
-                    p = micro.OUT / f"{tok}.csv"
+                    p = micro.OUT / f"{micro.safe_name(tok)}.csv"
                     if p.exists():
                         old = pd.read_csv(p, parse_dates=["ts"])
                         df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")

@@ -111,6 +111,16 @@ def cg_resolve(tok):
     return best[1:] if best else None
 
 
+def safe_name(tok):
+    """Filesystem-safe token name: drop shell-significant ($) and other
+    problematic chars so paths don't get mangled (e.g. '$BANANA' -> '_BANANA').
+    Non-ASCII (Chinese tokens) is kept (Python/UTF-8 handles it) but spaces and
+    slashes are removed. Preserves token identity for the micro-breadth consumer,
+    which globs *.csv by stem."""
+    s = tok.replace("$", "_").replace(" ", "").replace("/", "_").replace("\\", "_")
+    return s
+
+
 def poll_token(tok):
     addr = resolve_address(tok)
     if addr is None:
@@ -150,7 +160,7 @@ def main():
     while True:
         done = 0
         for tok in toks:
-            path = OUT / f"{tok}.csv"
+            path = OUT / f"{safe_name(tok)}.csv"
             # skip if polled very recently
             if path.exists():
                 try:
@@ -165,7 +175,7 @@ def main():
                     print(f"  {tok}: {err}")
                 time.sleep(SLEEP)
                 continue
-            row = {"ts": pd.Timestamp.now("UTC"), **rec}
+            row = {"ts": pd.Timestamp.now("UTC"), "token": tok, **rec}
             df = pd.DataFrame([row])
             if path.exists():
                 old = pd.read_csv(path, parse_dates=["ts"])

@@ -88,18 +88,28 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--syms", default=None, help="comma list; default all")
     ap.add_argument("--tfs", default=",".join(TFS), help="comma list of tfs")
-    ap.add_argument("--resume", action="store_true", default=True)
+    ap.add_argument("--shard", default=None, help="i/n sharding, e.g. 1/6")
     args = ap.parse_args()
     tfs = [t for t in args.tfs.split(",") if t in TFS]
     # Process fast lookback TFs first so data is usable immediately; 5m last
     # (it is the heaviest: deep history spans 1000s of pages per symbol).
     tfs.sort(key=lambda t: {"1d": 0, "1h": 1, "4h": 2, "5m": 3}[t])
     syms = args.syms.split(",") if args.syms else get_syms()
-    print(f"Backfilling {len(syms)} symbols x {tfs} tfs -> {CEX}")
+    tag = ""
+    if args.shard:
+        i, n = (int(x) for x in args.shard.split("/"))
+        syms = syms[i - 1::n]   # round-robin slice across shards
+        tag = f"[shard {args.shard}] "
+    print(f"{tag}Backfilling {len(syms)} symbols x {tfs} tfs -> {CEX}")
     total = 0
     for tf in tfs:
         for sym in syms:
             path = CEX / f"{sym}_{tf}.csv"
+            # skip if this tf already complete (deep enough) -> lets shards
+            # resume without re-pulling finished tfs
+            if path.exists() and existing_last_ms(path) is not None and \
+               existing_last_ms(path) >= floor_ts(int(time.time() * 1000), tf):
+                continue
             last = existing_last_ms(path)
             start = 1262304000000 if last is None else floor_ts(last + 1, tf)
             rows = pull(sym, tf, start)
@@ -115,9 +125,9 @@ def main():
                 df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
             df.to_csv(path, index=False)
             total += 1
-            if total % 50 == 0:
-                print(f"  wrote {total} files; latest {sym} {tf} -> {df['ts'].max()}")
-        print(f"  completed tf={tf} ({total} files so far)")
+            if total % 20 == 0:
+                print(f"{tag}wrote {total} files; latest {sym} {tf} -> {df['ts'].max()}")
+        print(f"{tag}completed tf={tf} ({total} files so far)")
 
 
 if __name__ == "__main__":

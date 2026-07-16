@@ -91,7 +91,7 @@ def okx_klines(symbol, after_ms, limit=100):
     bars = []
     cursor = after_ms
     while True:
-        u = (f"https://www.okx.com/api/v5/market/history-candles?instId={symbol}"
+        u = (f"https://www.okx.com/api/v5/market/history-candles?instId={symbol.replace('USDT','-USDT')}"
              f"&bar=5m&limit={limit}&after={cursor}")
         d, err = fetch_json(u)
         if err:
@@ -135,7 +135,7 @@ def main():
 
     for sym in syms:
         stem = sym[:-4] if sym.endswith("USDT") else sym
-        tgt = OUT / f"{sym}_5m_max.csv"
+        tgt = OUT / f"{sym}_5m_{args.venue}_max.csv"
         have_until = None
         if tgt.exists():
             old = pd.read_csv(tgt, parse_dates=["ts"])

@@ -2,16 +2,18 @@
 """
 On-chain BTC/ETH history puller (AWS Public Blockchain -- FREE, no key, anonymous S3).
 
-Source: s3://aws-public-blockchain  (v1.0/btc/{blocks,transactions}/, v1.0/eth/...)
+Source: s3://aws-public-blockchain
+  v1.0/btc|eth/{blocks,transactions}/
+  v1.1/sonarx/{aptos,arbitrum,base,provenance,xrp}/{blocks,transactions}/  (5 extra free chains)
 Each day = one snappy.parquet. We derive ML-ready on-chain FEATURES per day:
   - tx count, total fees (BTC) / gas-used (ETH)
   - large-transfer count/volume (whale flow proxy): outputs/values above a threshold
   - active-address proxy (unique senders+receivers)
   - avg fee per tx, median tx value
-These attach to BTC/ETH PRICE series as exogenous features (network stress,
-whale activity) for the ML bots.
+These attach to PRICE series as exogenous features (network stress, whale
+activity) for the ML bots.
 
-Usage: python backfill_onchain.py [--chain btc] [--start 2009-01-03]
+Usage: python backfill_onchain.py [--chain btc|eth|aptos|arbitrum|base|provenance|xrp]
 Writes: data/onchain/<CHAIN>_features_daily.csv  (indexed by date)
 """
 import argparse
@@ -27,10 +29,19 @@ OUT = REPO / "data" / "onchain"
 BUCKET = "https://aws-public-blockchain.s3.amazonaws.com"
 WHALE_BTC = 100.0      # BTC
 WHALE_ETH = 1000.0     # ETH
+# v1.1/sonarx = 5 extra free chains (Aptos, Arbitrum, Base, Provenance, XRPL)
+SONARX = {"aptos", "arbitrum", "base", "provenance", "xrp"}
+
+
+def tx_prefix(chain):
+    """S3 prefix for a chain's transactions parquet (handles v1.0 vs v1.1/sonarx)."""
+    if chain in SONARX:
+        return f"v1.1/sonarx/{chain}/transactions/"
+    return f"v1.0/{chain}/transactions/"
 
 
 def list_days(chain):
-    prefix = f"v1.0/{chain}/transactions/"
+    prefix = tx_prefix(chain)
     out = []
     marker = None
     cont = None
@@ -71,7 +82,7 @@ def fetch_parquet(url):
 def daily_features(chain, day):
     # list the actual parquet key for this day
     import urllib.request, re as _re
-    lst = urllib.request.urlopen(f"{BUCKET}/?prefix=v1.0/{chain}/transactions/date={day}/",
+    lst = urllib.request.urlopen(f"{BUCKET}/?prefix={tx_prefix(chain)}date={day}/",
                                  timeout=30).read().decode()
     key = _re.search(r"<Key>([^<]+)</Key>", lst)
     if not key:
@@ -95,9 +106,17 @@ def daily_features(chain, day):
     vcol = cols.get("output_value") or cols.get("value")
     if vcol is not None:
         vals = df[vcol].astype(float)
+        if chain in ("eth",) or "wei" in vcol.lower() or vals.max() > 1e15:
+            vals = vals / 1e18  # wei-scale -> native
+        elif chain == "btc":
+            pass  # already in BTC
+        # whale threshold: native-token units; SonarX chains use their own scale
         if chain == "eth":
-            vals = vals / 1e18
-        thr = WHALE_BTC if chain == "btc" else WHALE_ETH
+            thr = WHALE_ETH
+        elif chain == "btc":
+            thr = WHALE_BTC
+        else:
+            thr = 1000.0  # generic for sonarx chains (tune per chain later)
         feats["chain_total_value"] = float(vals.sum())
         feats["chain_whale_tx"] = int((vals >= thr).sum())
         feats["chain_whale_value"] = float(vals[vals >= thr].sum())

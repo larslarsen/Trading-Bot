@@ -88,7 +88,13 @@ def cex_worker(s, once):
                 continue  # already complete
             start = 1262304000000 if last is None else cex.floor_ts(last + 1, "5m")
             try:
-                rows = cex.pull(sym, "5m", start)
+                # Bulk CDN first (static ZIPs, no rate limit) for deep history,
+                # then REST pull() tops up the last live bars the ZIPs lack.
+                rows = cex.pull_bulk(sym, "5m", start)
+                bulk_last = rows[-1][0] if rows else (last if last else start)
+                live = cex.pull(sym, "5m", cex.floor_ts(bulk_last + 1, "5m"))
+                if live:
+                    rows = rows + live
                 if rows:
                     df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume",
                                                      "close_time", "qav", "trades", "tbav", "tqav", "ignore"])
@@ -100,6 +106,7 @@ def cex_worker(s, once):
                         df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
                     df.to_csv(path, index=False)
                     derive.derive_sym(sym, ["1h", "4h", "1d"])
+                    print(f"  [cex {sym}] {len(rows)} new bars -> {path.name}", flush=True)
             except Exception as e:
                 print(f"  [cex {sym}] error: {e}", flush=True)
         s["cex_cursor"] = end % n

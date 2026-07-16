@@ -102,6 +102,24 @@ def build_features(symbol):
             df = df.join(micro, how="left")
     except Exception:
         pass
+    # NEW: deep-history Bybit funding rate (matches trainer wiring)
+    try:
+        from micro_features import load_funding
+        if "funding_rate" in df.columns:
+            df = df.drop(columns=["funding_rate"])
+        fund = load_funding(symbol, df.index)
+        if fund is not None and not fund.empty:
+            df = df.join(fund, how="left")
+    except Exception:
+        pass
+    # NEW: on-chain network metrics (matches trainer wiring)
+    try:
+        from onchain_features import load_onchain
+        oc = load_onchain(df.index, symbol)
+        if oc is not None and not oc.empty:
+            df = df.join(oc, how="left")
+    except Exception:
+        pass
     # DEX-wide breadth -- optional; capture its columns (trainer includes them)
     dex_cols = []
     try:
@@ -115,6 +133,11 @@ def build_features(symbol):
     df = df.sort_index()
     df = detect_regime(df)
     features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
+    # NEW high-value exogenous features (funding + on-chain) if present
+    extra = ["funding_rate"] + [c for c in df.columns if c.startswith("oc_")]
+    for cand in extra:
+        if cand in df.columns:
+            features.append(cand)
     df = df.dropna(subset=[c for c in features if df[c].notna().any()])
     if df.empty:
         return None, None

@@ -62,6 +62,17 @@ def save_state(s):
     STATE.write_text(json.dumps(s, indent=2))
 
 
+def cex_5m_path(sym):
+    """Canonical 5m path for a symbol -- the SAME file every bot + the trainer
+    reads (single source of truth, one place). BTC is the root btc_5m.csv;
+    all other pairs follow the data/<SYM>USDT_5m_max.csv convention that
+    pipeline.fetch_data() resolves. The poller writes HERE and nowhere else."""
+    if sym == "BTCUSDT":
+        return REPO / "btc_5m.csv"
+    stem = sym.replace("USDT", "")
+    return REPO / "data" / f"{stem}USDT_5m_max.csv"
+
+
 def cex_worker(s, once):
     syms = cex.get_syms()
     n = len(syms)
@@ -70,7 +81,7 @@ def cex_worker(s, once):
         end = min(cursor + CEX_BATCH_PER_PASS, n)
         for i in range(cursor, end):
             sym = syms[i]
-            path = cex.CEX / f"{sym}_5m.csv"
+            path = cex_5m_path(sym)
             last = cex.existing_last_ms(path)
             now_ms = int(time.time() * 1000)
             if last is not None and last >= cex.floor_ts(now_ms, "5m"):

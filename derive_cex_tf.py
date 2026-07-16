@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pandas as pd
 
-CEX = Path(__file__).parent / "data" / "cex"
 REPO = Path(__file__).parent
 AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 RULE = {"1h": "1h", "4h": "4h", "1d": "1d"}
@@ -28,11 +27,13 @@ FMT = {"1h": "%Y-%m-%d %H:%M:%S+0000", "4h": "%Y-%m-%d %H:%M:%S+0000", "1d": "%Y
 
 
 def derive_sym(sym, tfs):
-    # BTC has the deepest dedicated file; others from the CEX sweep tree.
+    # Single source of truth: same canonical 5m path the poller writes and the
+    # bots/trainer read. BTC -> btc_5m.csv; others -> data/<SYM>USDT_5m_max.csv.
     if sym == "BTCUSDT":
         src = REPO / "btc_5m.csv"
     else:
-        src = CEX / f"{sym}_5m.csv"
+        stem = sym.replace("USDT", "")
+        src = REPO / "data" / f"{stem}USDT_5m_max.csv"
     if not src.exists():
         return {tf: 0 for tf in tfs}
     df = pd.read_csv(src)
@@ -45,7 +46,10 @@ def derive_sym(sym, tfs):
     for tf in tfs:
         r = d.resample(RULE[tf]).agg(AGG).dropna().reset_index()
         r["ts"] = r["ts"].dt.strftime(FMT[tf])
-        r.to_csv(CEX / f"{sym}_{tf}.csv", index=False)
+        # canonical path: data/<SYM>USDT_<tf>_max.csv (same tree as 5m + DEX)
+        stem = sym.replace("USDT", "")
+        out_path = REPO / "data" / f"{stem}USDT_{tf}_max.csv"
+        r.to_csv(out_path, index=False)
         out[tf] = len(r)
     return out
 
@@ -58,7 +62,12 @@ def main():
     if args.syms:
         syms = [s.strip().upper() for s in args.syms.split(",") if s.strip()]
     else:
-        syms = sorted({p.name.replace("_5m.csv", "") for p in CEX.glob("*_5m.csv")})
+        # canonical 5m files: btc_5m.csv + data/<SYM>USDT_5m_max.csv
+        syms = []
+        if (REPO / "btc_5m.csv").exists():
+            syms.append("BTCUSDT")
+        syms += sorted({p.name.replace("USDT_5m_max.csv", "") + "USDT"
+                        for p in (REPO / "data").glob("*USDT_5m_max.csv")})
     print(f"Derive CEX TFs from local 5m (no API): {len(syms)} symbols, TFs={args.tfs}")
     tot = {tf: 0 for tf in args.tfs}
     for sym in syms:

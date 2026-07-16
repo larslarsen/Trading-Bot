@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-Backfill BTC + ETH 5m bars from Binance and Bybit into one local CSV.
-Schema: ts, open, high, low, close, volume, symbol
+Backfill multi-asset 5m bars into one local CSV (multi_5m.csv).
+Schema: ts, symbol, open, high, low, close, volume
+
+Seeds from the deep local 5m history we already have (BTC via btc_5m.csv,
+DOGE via data/DOGEUSDT_5m_max.csv) so the cross-asset file always covers the
+target's trading era — then optionally appends any additional symbols fetched
+from the network (e.g. SOL via ccxt). The local seed makes the file correct
+without network access and prevents stale/asset-wrong regeneration.
 """
 import time
 import pandas as pd
@@ -13,9 +19,30 @@ EXCHANGES = [
     ('binance', [('SOL/USDT', 'since_2018')]),
 ]
 
-OUT = Path(__file__).parent / 'multi_5m.csv'
+ROOT = Path(__file__).parent
+OUT = ROOT / 'multi_5m.csv'
 STOP_AT = datetime.now(timezone.utc)
 BATCH = 1000
+
+# Local deep sources seeded first so the file is always era-correct.
+LOCAL_SEEDS = [
+    (ROOT / 'btc_5m.csv', 'BTCUSDT'),
+    (ROOT / 'data' / 'DOGEUSDT_5m_max.csv', 'DOGEUSDT'),
+]
+
+
+def seed_from_local():
+    frames = []
+    for path, sym in LOCAL_SEEDS:
+        if not path.exists():
+            continue
+        d = pd.read_csv(path, parse_dates=['ts'])
+        if d['ts'].dt.tz is None:
+            d['ts'] = d['ts'].dt.tz_localize('UTC')
+        d['symbol'] = sym
+        frames.append(d[['ts', 'symbol', 'open', 'high', 'low', 'close', 'volume']])
+        print(f"[local] seeded {sym}: {len(d)} bars")
+    return frames
 
 
 def fetch_exchange(name, symbols):
@@ -61,17 +88,7 @@ def fetch_exchange(name, symbols):
 
 
 def main():
-    existing = None
-    if OUT.exists():
-        existing = pd.read_csv(OUT, parse_dates=['ts'])
-        rename_cols = {'ts': 'timestamp', 'sym': 'symbol'}
-        existing = existing.rename(columns={k: v for k, v in rename_cols.items() if k in existing.columns})
-        if 'timestamp' in existing.columns and existing['timestamp'].dt.tz is None:
-            existing['timestamp'] = existing['timestamp'].dt.tz_localize('UTC')
-        existing = existing.drop_duplicates(subset=['timestamp', 'symbol']).sort_values(['timestamp', 'symbol']).reset_index(drop=True)
-        print(f'Existing: {len(existing)} rows, symbols={sorted(existing["symbol"].unique()) if "symbol" in existing.columns else "N/A"}')
-
-    frames = []
+    frames = seed_from_local()
     for name, symbols in EXCHANGES:
         try:
             frames.extend(fetch_exchange(name, symbols))
@@ -79,19 +96,12 @@ def main():
             print(f'[{name}] failed: {e}')
 
     if not frames:
-        print('No data fetched.')
+        print('No data.')
         return
 
     merged = pd.concat(frames, ignore_index=True)
-    merged = merged.drop_duplicates(subset=['timestamp', 'symbol']).sort_values(['timestamp', 'symbol']).reset_index(drop=True)
-    if existing is not None and len(existing):
-        merged = pd.concat([existing, merged], ignore_index=True)
-        merged = merged.drop_duplicates(subset=['timestamp', 'symbol']).sort_values(['timestamp', 'symbol']).reset_index(drop=True)
-
-    merged.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
-    if 'timestamp' in merged.columns:
-        merged = merged.rename(columns={'timestamp': 'ts'})
-    OUT.parent.mkdir(parents=True, exist_ok=True)
+    merged = merged.drop_duplicates(subset=['ts', 'symbol']).sort_values(['symbol', 'ts']).reset_index(drop=True)
+    merged = merged.dropna(subset=['open', 'high', 'low', 'close'])
     cols = ['ts', 'symbol', 'open', 'high', 'low', 'close', 'volume']
     merged = merged[cols]
     merged.to_csv(OUT, index=False)

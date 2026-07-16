@@ -90,7 +90,9 @@ def cex_worker(s, once):
             try:
                 rows = cex.pull(sym, "5m", start)
                 if rows:
-                    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
+                    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume",
+                                                     "close_time", "qav", "trades", "tbav", "tqav", "ignore"])
+                    df = df[["ts", "open", "high", "low", "close", "volume"]].copy()
                     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
                     if path.exists():
                         old = pd.read_csv(path)

@@ -45,6 +45,18 @@ def load_token(path):
     df.index = pd.to_datetime(df.index, utc=True)
     df = df[~df.index.duplicated(keep="first")]
     df = derive_features(df)
+    # NEW high-value exogenous (graceful: DEX tokens mostly have no matching
+    # chain/funding -> empty -> skipped). BTC/ETH-denominated tokens pick up
+    # the matching on-chain network features as cross-asset macro signal.
+    sym = path.stem.replace("_1d_max", "")
+    from micro_features import load_funding
+    fund = load_funding(sym, df.index)
+    if not fund.empty:
+        df = df.join(fund, how="left")
+    from onchain_features import load_onchain
+    oc = load_onchain(df.index, sym)
+    if not oc.empty:
+        df = df.join(oc, how="left")
     df = triple_barrier_labels(df)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df["token"] = path.stem.replace("_1d_max", "")
@@ -72,7 +84,17 @@ def main():
     n_tokens = panel["token"].nunique()
     features = [f for f in ALL_FEATURES if f in panel.columns]
     features = [c for c in features if panel[c].notna().any()]
-    panel = panel.dropna(subset=features + ["label"])
+    # NEW high-value exogenous (funding + on-chain) if present
+    extra = [c for c in panel.columns if c == "funding_rate" or c.startswith("oc_")]
+    extra = [c for c in extra if panel[c].notna().any()]
+    features = features + extra
+    # DEX tokens are THIN: dropping on all 38 core price features nukes ~99% of
+    # rows (most tokens lack full feature history). Require only label + a
+    # minimal essential set so the pooled panel stays trainable. Optional
+    # exogenous (funding/oc_) stays as 0-fill, not a drop criterion.
+    essential = [c for c in ("close", "log_ret", "ret_1", "vol_z", "rsi_14")
+                 if c in panel.columns and panel[c].notna().any()]
+    panel = panel.dropna(subset=essential + ["label"])
     print(f"  Pooled {len(panel)} rows / {n_tokens} tokens / {len(features)} features")
     if len(panel) < 2000:
         raise SystemExit(f"too few pooled rows ({len(panel)}) to train")
@@ -91,10 +113,9 @@ def main():
         n_estimators=N_TREES, max_depth=MAX_DEPTH, learning_rate=0.05,
         subsample=0.8, colsample_bytree=0.8, objective="multi:softprob",
         num_class=3, n_jobs=N_JOBS, eval_metric="mlogloss",
+        class_weight="balanced",
     )
-    sample_w = pd.Series(ytr).map(
-        {k: len(ytr) / (3 * max(1, (ytr == k).sum())) for k in (0, 1, 2)}).values
-    model.fit(Xtr, ytr, sample_weight=sample_w, eval_set=[(Xval, yval)], verbose=False)
+    model.fit(Xtr, ytr, eval_set=[(Xval, yval)], verbose=False)
 
     acc = float((model.predict(Xte) == yte).mean()) if len(yte) else float("nan")
     MODELS_DIR.mkdir(exist_ok=True)

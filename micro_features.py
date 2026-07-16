@@ -12,10 +12,37 @@ import pandas as pd
 OUT_DIR = Path(__file__).parent
 
 FUND_FILE = OUT_DIR / "funding_history.csv"
+FUND_DIR = OUT_DIR / "data" / "funding"  # new deep-history Bybit funding (backfill_funding_mexc.py)
 OI_FILE = OUT_DIR / "oi_history.csv"
 LIQ_FILE = OUT_DIR / "liquidations_history.csv"
 TRADE_AGG_FILE = OUT_DIR / "trade_agg_5m.csv"
 ORDERBOOK_FILE = OUT_DIR / "orderbook_5m.csv"
+
+
+def load_funding(symbol, dbars_index):
+    """Load DEEP-HISTORY Bybit funding rate for `symbol` from
+    data/funding/<SYM>USDT_funding.csv (8h interval, years of history) and
+    align (forward-fill) to the 5m/1d training index. This is the high-value
+    funding signal the backfills produced -- preferred over the legacy
+    funding_history.csv live feed. Returns a single-column DataFrame
+    ['funding_rate'] indexed like dbars_index, or empty if unavailable."""
+    sym = symbol.upper().replace("/", "").replace("USDT", "")
+    # funding files are named <SYM>USDT_funding.csv
+    cand = FUND_DIR / f"{sym}USDT_funding.csv"
+    if not cand.exists():
+        return pd.DataFrame(index=dbars_index)
+    d = pd.read_csv(cand, parse_dates=["ts"])
+    if "ts" not in d.columns or "funding_rate" not in d.columns:
+        return pd.DataFrame(index=dbars_index)
+    d = d.set_index("ts").sort_index()
+    d.index = pd.to_datetime(d.index, utc=True)
+    d = d[~d.index.duplicated(keep="last")]
+    d = d[["funding_rate"]].reindex(dbars_index, method="ffill")
+    return d.ffill()
+
+
+def load_micro(dbars_index):
+    features = pd.DataFrame(index=dbars_index)
 
 
 def _read_ts_first(path):

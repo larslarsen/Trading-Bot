@@ -101,13 +101,32 @@ def train_and_save(symbol=None) -> bool | None:
         df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
     else:
         multi_cols = []
-    from micro_features import load_micro
+    from micro_features import load_micro, load_funding
     micro = load_micro(df.index)
     if not micro.empty and micro.notna().any().any():
         df = df.join(micro, how='left')
         print(f'  Loaded {len(micro.columns)} micro columns')
     else:
         print('  No usable micro data, continuing')
+    # NEW: deep-history Bybit funding rate (high-value signal) -- prefer over
+    # the legacy micro funding feed (which is a thin live feed). Drop any
+    # legacy funding_rate col first to avoid join collision.
+    if "funding_rate" in df.columns:
+        df = df.drop(columns=["funding_rate"])
+    fund = load_funding(symbol or "BTC", df.index)
+    if not fund.empty and fund.notna().any().any():
+        df = df.join(fund, how='left')
+        print(f'  Loaded funding_rate ({len(fund)} rows aligned)')
+    else:
+        print('  No funding data for symbol, continuing')
+    # NEW: on-chain network features (BTC/ETH/base/etc)
+    from onchain_features import load_onchain
+    oc = load_onchain(df.index, symbol or "BTC")
+    if not oc.empty and oc.notna().any().any():
+        df = df.join(oc, how='left')
+        print(f'  Loaded {len(oc.columns)} on-chain columns')
+    else:
+        print('  No on-chain data for symbol, continuing')
     # DEX-wide cross-venue microstructure breadth (DexScreener poller output)
     try:
         from dex_features import add_dex_features
@@ -141,6 +160,11 @@ def train_and_save(symbol=None) -> bool | None:
     df = detect_regime(df)
 
     features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
+    # NEW high-value exogenous features (funding + on-chain) if present
+    extra = ["funding_rate"] + [c for c in df.columns if c.startswith("oc_")]
+    for cand in extra:
+        if cand in df.columns:
+            features.append(cand)
     X = df[features].values
     y = df["label"].values
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

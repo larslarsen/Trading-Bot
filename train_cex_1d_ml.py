@@ -49,6 +49,16 @@ def load_symbol(path):
     if len(df) < MIN_BARS:
         return None
     df = derive_features(df)
+    # NEW high-value exogenous: deep-history funding + on-chain network features
+    sym = path.stem.replace("_1d_max", "").replace("_1d", "")
+    from micro_features import load_funding
+    fund = load_funding(sym, df.index)
+    if not fund.empty:
+        df = df.join(fund, how="left")
+    from onchain_features import load_onchain
+    oc = load_onchain(df.index, sym)
+    if not oc.empty:
+        df = df.join(oc, how="left")
     df = triple_barrier_labels(df)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df["symbol"] = path.stem.replace("_1d_max", "")
@@ -73,7 +83,14 @@ def main():
     n_syms = panel["symbol"].nunique()
     features = [f for f in ALL_FEATURES if f in panel.columns]
     features = [c for c in features if panel[c].notna().any()]
-    panel = panel.dropna(subset=features + ["label"])
+    # NEW high-value exogenous (funding + on-chain) if present in the panel
+    extra = [c for c in panel.columns if c == "funding_rate" or c.startswith("oc_")]
+    extra = [c for c in extra if panel[c].notna().any()]
+    features = features + extra
+    # Only dropna on core price features + label, NOT the optional exogenous
+    # (funding/on-chain are sparse early; forward-filled, missing -> 0 not drop)
+    core = [f for f in ALL_FEATURES if f in panel.columns and panel[f].notna().any()]
+    panel = panel.dropna(subset=core + ["label"])
     print(f"  Pooled {len(panel)} rows / {n_syms} symbols / {len(features)} features")
     if len(panel) < 2000:
         raise SystemExit(f"too few pooled rows ({len(panel)}) to train")
@@ -91,10 +108,9 @@ def main():
         n_estimators=N_TREES, max_depth=MAX_DEPTH, learning_rate=0.05,
         subsample=0.8, colsample_bytree=0.8, objective="multi:softprob",
         num_class=3, n_jobs=N_JOBS, eval_metric="mlogloss",
+        class_weight="balanced",
     )
-    sample_w = pd.Series(ytr).map(
-        {k: len(ytr) / (3 * max(1, (ytr == k).sum())) for k in (0, 1, 2)}).values
-    model.fit(Xtr, ytr, sample_weight=sample_w, eval_set=[(Xval, yval)], verbose=False)
+    model.fit(Xtr, ytr, eval_set=[(Xval, yval)], verbose=False)
 
     acc = float((model.predict(Xte) == yte).mean()) if len(yte) else float("nan")
     MODELS_DIR.mkdir(exist_ok=True)

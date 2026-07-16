@@ -41,6 +41,15 @@ N_TREES = 200
 MAX_DEPTH = 4
 
 
+def _norm_sym(sym_tag: str) -> str:
+    """Canonical symbol key: upper, strip '/', strip a trailing 'USDT'.
+
+    Mirrors pipeline.fetch_data's stem so 'DOGE', 'DOGEUSDT' and 'DOGE/USDT'
+    all map to the same model file (doge_xgb.json), and 'BTC' stays 'BTC'.
+    """
+    return sym_tag.upper().replace("/", "").replace("USDT", "")
+
+
 def model_out_path(sym_tag: str) -> Path:
     """Where to serialize a trained model.
 
@@ -48,24 +57,25 @@ def model_out_path(sym_tag: str) -> Path:
     Any other symbol writes models/<sym>_xgb.json so it never clobbers BTC's
     production model.
     """
+    sym_tag = _norm_sym(sym_tag)
     if sym_tag == "BTC":
         return MODEL_DIR / "latest_xgb.json"
     return MODEL_DIR / f"{sym_tag.lower()}_xgb.json"
 
 
 def meta_out_path(sym_tag: str) -> Path:
-    """Where to serialize training metadata/metrics.
-
-    Mirrors model_out_path: BTC -> latest_meta.json / latest_metrics.json
-    (serving bot), any other symbol -> <sym>_meta.json / <sym>_metrics.json
-    so a non-BTC train never clobbers BTC's production metadata.
+    """Training metadata path. Mirrors model_out_path: BTC -> latest_meta.json
+    (serving bot), any other symbol -> <sym>_meta.json so a non-BTC train
+    never clobbers BTC's production metadata.
     """
+    sym_tag = _norm_sym(sym_tag)
     if sym_tag == "BTC":
         return MODEL_DIR / "latest_meta.json"
     return MODEL_DIR / f"{sym_tag.lower()}_meta.json"
 
 
 def metrics_out_path(sym_tag: str) -> Path:
+    sym_tag = _norm_sym(sym_tag)
     if sym_tag == "BTC":
         return MODEL_DIR / "latest_metrics.json"
     return MODEL_DIR / f"{sym_tag.lower()}_metrics.json"
@@ -77,7 +87,7 @@ def train_and_save(symbol=None) -> bool | None:
     saved to models/<sym>_xgb.json so they never clobber BTC's latest_xgb.json
     (which the serving bot consumes)."""
     t0 = time.time()
-    sym_tag = (symbol or "BTC").upper().replace("/", "")
+    sym_tag = _norm_sym(symbol or "BTC")
     print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Train starting for {sym_tag}...")
 
     # Load data

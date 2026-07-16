@@ -32,12 +32,15 @@ WHALE_ETH = 1000.0     # ETH
 def list_days(chain):
     prefix = f"v1.0/{chain}/transactions/"
     out = []
+    marker = None
     cont = None
+    import urllib.request, urllib.parse
     while True:
-        url = f"{BUCKET}/?prefix={prefix}&max-keys=500"
+        url = f"{BUCKET}/?prefix={urllib.parse.quote(prefix, safe='')}&max-keys=500"
         if cont:
-            url += f"&continuation-token={cont}"
-        import urllib.request
+            url += f"&continuation-token={urllib.parse.quote(cont, safe='')}"
+        elif marker:
+            url += f"&marker={urllib.parse.quote(marker, safe='')}"
         with urllib.request.urlopen(url, timeout=30) as r:
             xml = r.read().decode()
         keys = re.findall(r"<Key>([^<]+)</Key>", xml)
@@ -45,9 +48,15 @@ def list_days(chain):
             m = re.search(r"date=(\d{4}-\d{2}-\d{2})/", k)
             if m:
                 out.append(m.group(1))
+        trunc = re.search(r"<IsTruncated>(true|false)</IsTruncated>", xml)
         nxt = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", xml)
-        if nxt:
-            cont = nxt.group(1)
+        if trunc and trunc.group(1) == "true":
+            if nxt:
+                cont = nxt.group(1); marker = None
+            elif keys:
+                cont = None; marker = keys[-1]   # legacy marker-based pagination
+            else:
+                break
         else:
             break
     return sorted(set(out))

@@ -52,17 +52,17 @@ def fetch_json(url, timeout=30, tries=4):
 
 
 def bybit_klines(symbol, start_ms, limit=1000):
-    """Yield pages of 5m bars walking FORWARD from start_ms to now.
-    Bybit returns newest-first for a given start; to paginate forward we
-    advance the cursor to the newest ts + interval each page. Bounded by
-    progress check (if a page adds nothing new we stop)."""
+    """Bybit /v5/market/kline: use the `end` param as the UPPER bound (returns
+    up to `limit` bars BEFORE `end`). Walk backward: end = oldest-1, until we
+    pass start_ms. `start` param is ignored/clamped by Bybit, so `end` is the
+    correct pagination key. Bounded by progress check."""
     bars = []
-    cursor = start_ms
+    end = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
     pages = 0
     seen_ts = set()
-    while pages < 500:
+    while pages < 2000:
         u = (f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}"
-             f"&interval=5&limit={limit}&start={cursor}")
+             f"&interval=5&limit={limit}&end={end}")
         d, err = fetch_json(u)
         if err:
             return bars, err
@@ -72,16 +72,16 @@ def bybit_klines(symbol, start_ms, limit=1000):
         if not page:
             break
         before = len(bars)
+        oldest = int(page[-1][0])
         for row in page:
             t = int(row[0])
-            if t not in seen_ts:
+            if t >= start_ms and t not in seen_ts:
                 seen_ts.add(t)
                 bars.append(row)
-        newest = int(page[0][0])
         pages += 1
-        if newest <= cursor or len(bars) == before:
+        if oldest <= start_ms or len(bars) == before:
             break
-        cursor = newest + 1
+        end = oldest - 1
         time.sleep(0.3)
     return bars, None
 

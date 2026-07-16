@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Rebuild multi_5m.csv from the top-K liquid CEX assets (minimizing
-stablecoins) so single-pair ML models train on a broad cross-asset basket.
+"""Rebuild multi_5m.csv from ALL CEX assets (minimizing stablecoins) so
+single-pair ML models train on EVERY other asset's 5m data as cross-asset
+features. No narrowing to a top-K basket — the user requires ALL data.
 
-Reads data/cex/<SYM>_5m.csv for each basket symbol (produced by
-backfill_cex_all.py). BTC is seeded from btc_5m.csv (deepest). The target's
-own symbol is included so cross features (e.g. DOGE_btc_ratio) are computable.
-Basket = top liquid USDT pairs minus stablecoins (pegged = no signal).
+Reads data/cex/<SYM>_5m.csv for each symbol (produced by backfill_cex_all.py).
+BTC is seeded from btc_5m.csv (deepest). The target's own symbol is included
+so cross features (e.g. DOGE_btc_ratio) are computable. XGBoost handles the
+resulting wide feature matrix (hundreds of assets x cross-features) fine.
 
 Usage:
-  python build_multi_5m.py            # use top50_liquid.txt minus stables
+  python build_multi_5m.py            # all non-stable USDT pairs in data/cex + BTC
   python build_multi_5m.py --syms BTCUSDT,ETHUSDT,DOGEUSDT,SOLUSDT
 """
 import argparse
@@ -22,12 +23,13 @@ STABLES = {"USDCUSDT", "FDUSDUSDT", "RLUSDUSDT", "USD1USDT", "EURUSDT",
            "UUSDT", "TUSDUSDT", "DAIUSDT", "BUSDUSDT", "USDPUSDT", "AEURUSDT"}
 
 
-def basket_from_file():
-    p = REPO / "top50_liquid.txt"
-    if not p.exists():
-        return ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "SOLUSDT"]
-    syms = [s.strip() for s in p.read_text().splitlines() if s.strip()]
-    return [s for s in syms if s not in STABLES]
+def all_syms():
+    syms = ["BTCUSDT"]  # deepest dedicated file
+    for p in CEX.glob("*_5m.csv"):
+        s = p.stem.replace("_5m", "")
+        if s not in STABLES:
+            syms.append(s)
+    return syms
 
 
 def load_5m(sym):
@@ -49,7 +51,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--syms", default=None)
     args = ap.parse_args()
-    syms = args.syms.split(",") if args.syms else basket_from_file()
+    syms = args.syms.split(",") if args.syms else all_syms()
     frames = []
     for sym in syms:
         d = load_5m(sym)

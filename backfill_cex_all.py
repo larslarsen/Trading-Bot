@@ -25,8 +25,8 @@ SYMS_FILE = REPO / "all_binance_usdt.txt"
 TFS = ["5m", "1h", "4h", "1d"]
 BASE = "https://data-api.binance.vision/api/v3/klines"
 LIMIT = 1000
-SLEEP = 1.0          # polite pause between pages (avoid 429 backoff loops)
-BACKOFF = 15         # seconds on HTTP 429
+SLEEP = 0.3          # modest pause between pages (mirror tolerates this)
+BACKOFF = 10         # seconds on HTTP 429
 MAX_NEW_PER_PULL = 1_000_000  # safety cap to avoid runaway
 
 

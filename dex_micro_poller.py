@@ -72,7 +72,43 @@ def resolve_address(tok):
             fallback = ((pref, -liq), (chain, p.get("baseToken", {}).get("address")))
     # exact symbol match on a credible chain is authoritative; otherwise
     # best-effort capture the top credible-chain pair so breadth isn't dropped
-    return (exact or fallback)[1] if (exact or fallback) else None
+    if exact or fallback:
+        return (exact or fallback)[1]
+    # Backup: CoinGecko free search, only for tokens DexScreener couldn't
+    # resolve. Strict guard: exact symbol + a real contract address on a
+    # credible chain, so we never map a degenerate ticker to the wrong token
+    # (e.g. 'B' -> BTC, which has no token contract).
+    return cg_resolve(tok)
+
+
+CG_PREF = {"ethereum": 0, "polygon": 1, "bsc": 2, "base": 3, "arbitrum": 4}
+
+
+def cg_resolve(tok):
+    """CoinGecko free search backup. Returns (chainId, address) only if a coin
+    has an EXACT matching symbol AND a contract address on a credible chain."""
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/search",
+                         params={"query": tok}, timeout=20)
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    norm = lambda s: (s or "").upper().lstrip("$").strip()
+    q = norm(tok)
+    best = None
+    for c in (r.json() or {}).get("coins", []):
+        if norm(c.get("symbol")) != q:
+            continue
+        plat = c.get("platforms", {}) or {}
+        for chain in CG_PREF:
+            addr = plat.get(chain)
+            if addr:
+                pref = CG_PREF[chain]
+                if best is None or pref < best[0]:
+                    best = (pref, chain, addr)
+                break
+    return best[1:] if best else None
 
 
 def poll_token(tok):

@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 try:
-    from paper_trader import fill_price, run_once, FEE_PROFILES, PROFILE, SLIPPAGE_BP, SIZE_USD, JOURNAL_FILE
+    from cex_ml_xgb_5m_single_legacy import fill_price, run_once, FEE_PROFILES, PROFILE, SLIPPAGE_BP, SIZE_USD, JOURNAL_FILE
     from order_manager import ExecutionState, PositionSide
     HAS_LEGACY = True
 except Exception:

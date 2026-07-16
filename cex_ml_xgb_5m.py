@@ -16,8 +16,8 @@ Inference is inline (models loaded once at startup) so there is one process to
 supervise, not one server + one trader per pair.
 
 Usage:
-  python paper_trader_ml_multi.py            # loop forever, poll every 300s
-  python paper_trader_ml_multi.py --once    # one ranking + execution pass
+  python cex_ml_xgb_5m.py            # loop forever, poll every 300s
+  python cex_ml_xgb_5m.py --once    # one ranking + execution pass
 """
 import argparse
 import json

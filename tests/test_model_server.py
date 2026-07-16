@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 # Stub `pipeline` so model_server can import without equities_regime.
 sys.modules.setdefault("pipeline", MagicMock())
 
-import model_server as ms  # noqa: E402
+import serve_ml_xgb_legacy as ms  # noqa: E402
 
 
 class FakeModel:

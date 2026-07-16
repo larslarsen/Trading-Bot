@@ -23,8 +23,8 @@ from config import (
 )
 from engine import compute_live_regime, get_regime_signals
 
-print(f"\n=== paper_trader_multi run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
-print('START paper_trader_multi.py', flush=True)
+print(f"\n=== cex_multi_screen_1d run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
+print('START cex_multi_screen_1d.py', flush=True)
 
 def _col(df: pd.DataFrame, name: str) -> pd.Series:
     """Extract a price column as a Series sharing ``df``'s index."""

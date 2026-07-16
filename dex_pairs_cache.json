@@ -1,0 +1,877 @@
+{
+  "_ts": 1784147181.9806519,
+  "pairs": {
+    "1INCH": [
+      "solana",
+      "9GVbqNLsX98YadXvjnLnyqg4mxyjz1bZHKPn9EUTKHaR"
+    ],
+    "AAVE": [
+      "solana",
+      "2TqyGtaLK75N1pzT7XLvrd8LVDur6Tqi9E4i4noeEWTv"
+    ],
+    "ACN": [
+      "ethereum",
+      "0x51840EdC34BE8f0a391cBB180a213facF22CCD74"
+    ],
+    "ACU": [
+      "solana",
+      "HxBfi3UYgLx81gnyH17DiNkzqY9pnxUZ1GFkej43uK4N"
+    ],
+    "ADI": [
+      "ethereum",
+      "0x5a4300d03e43579c329a6c9DF278D08F222Dd356"
+    ],
+    "ADS": [
+      "solana",
+      "CabfuFu1C5jMJcEFEPTr8uSyw23q2LkbiAF58ai2Y2G"
+    ],
+    "AERO": [
+      "ethereum",
+      "0xdfAc11783c10aE8575a092BD09dBb3bb2611AA98"
+    ],
+    "AGT": [
+      "bsc",
+      "0xD3cFFC6B02a34DfC72F1350339031043a854599f"
+    ],
+    "AIDOGE": [
+      "arbitrum",
+      "0x6A78E84FA0edAD4D99eB90edc041CdbF85925961"
+    ],
+    "AIOT": [
+      "solana",
+      "B6qQmrSoKduEtAQwbbKpNfN45V2N4Q4dfwSKfJW7TdEu"
+    ],
+    "AIX": [
+      "bsc",
+      "0x655b1A30B040f10C9CC3aA2f9eF50d1790063408"
+    ],
+    "AI": [
+      "solana",
+      "57rXsAM2DAoyzbbcwHqGMxsjxC2X4EjBEhJ6oWJ4yL1P"
+    ],
+    "AKE": [
+      "solana",
+      "8mpCWrM3rCKonkDoAT1GtxWyfCGywtvWMqyqT5SACXky"
+    ],
+    "ALCX": [
+      "robinhood",
+      "0x78aC5304C9F2072C66955888ce8EF84Aa5E39388"
+    ],
+    "AMETA": [
+      "ethereum",
+      "0xd03CAD9AaEA9Cd0719B2a469D877A627E20F5f84"
+    ],
+    "ANOME": [
+      "bsc",
+      "0x5E8878f8083660Bc09c7c9808210451A33Be8De4"
+    ],
+    "ANT": [
+      "arbitrum",
+      "0xbF24f38243392A0b4b7A13d10Dbf294F40aE401B"
+    ],
+    "APD": [
+      "solana",
+      "4wcLNZyVZY5V3q9yLZQBZ8EEPbcwJYy3PUBNmZmxbRUi"
+    ],
+    "APE": [
+      "ethereum",
+      "0xA026222fB229d2D38a185eD3Ef4FDB23Be7e8F8d"
+    ],
+    "APR": [
+      "solana",
+      "t573i7FsmGFYKP58GHMGTpzjgBJPAa9KrmgDaeBarKZ"
+    ],
+    "ARK": [
+      "solana",
+      "CDPkWMn2Zz9mo4uEn7zoL9MyV8zs6SbiETKj8MjZkx4z"
+    ],
+    "ASSET": [
+      "ethereum",
+      "0x10906316074AB8431ca9413372C98A6B27183882"
+    ],
+    "ASTEROID": [
+      "solana",
+      "91gJEvSLqH8o1KmH77xEgBxfFJod1Ey7YZ2VxvgEas5M"
+    ],
+    "ASTER": [
+      "ethereum",
+      "0xC0D332613afF033ca960458537F0123e68DD4225"
+    ],
+    "ATH": [
+      "solana",
+      "BgMx57g9i2wuQPkDXHFk17o82hLJiNnpubatpbGek1G1"
+    ],
+    "AT": [
+      "ethereum",
+      "0xE00727E4B2658983490D354D0A9799b8212848da"
+    ],
+    "AXGT": [
+      "solana",
+      "34RbayAjHnU9R6LtfehfhyRNTCSXcG4dHxYPA8HqN5G4"
+    ],
+    "AZTEC": [
+      "solana",
+      "9ioZkhrrnfzjQkcu8wboLRNP2VRAQJbE4rhe2f8GEQ2D"
+    ],
+    "B2": [
+      "solana",
+      "6s83ZmypuFXyzip9m3BaWQgqUu1taaZWACCnwKLxgXDV"
+    ],
+    "B3": [
+      "solana",
+      "7dbaZbpy3MwZGDg6VuagcVbMXCodQMcyfRQgByLA4Dfw"
+    ],
+    "BAL": [
+      "robinhood",
+      "0xa69fD02026324A4f11A13D5D495E47Bc770044cf"
+    ],
+    "BANK": [
+      "ethereum",
+      "0x9e25c32ed348A3a05CEC482F6c6Cd59724C8C54d"
+    ],
+    "BASED": [
+      "bsc",
+      "0x198aD01D73773Fc5b9ffC66A85Abd0260b747064"
+    ],
+    "BASEFUN": [
+      "base",
+      "0x8db5971e3119e15f96e108fa25d39a7301ca66b68897c3607284fe55b3794318"
+    ],
+    "BAS": [
+      "ethereum",
+      "0x522b246BD57996575C0e8e561142010a33461C7b"
+    ],
+    "BEAN": [
+      "robinhood",
+      "0x14d9d59112493Fe7c697270D32d25fe296752D1a"
+    ],
+    "BEAT": [
+      "solana",
+      "9Z2uYw3PsMveToZ35ZUdVxT4QsquXP4SESajYduxRxKS"
+    ],
+    "BEE": [
+      "bsc",
+      "0xB8a3a3789b351ED3a8da1BA69f859A2905965d5B"
+    ],
+    "BILL": [
+      "solana",
+      "65PAv7PBn53qaotZAMEiysHj8gV3Z7sJQapemFp2zyPd"
+    ],
+    "BIO": [
+      "solana",
+      "DL9gsAVkfssWKesbigbPMNhgtPYjpEj9rN419yDt5JHn"
+    ],
+    "BLESS": [
+      "solana",
+      "ALLrYLriB64JQtix4AbhFPz7K1CrqLT1UZ8zMradHkdk"
+    ],
+    "BNKR": [
+      "ethereum",
+      "0x25E9568b1Dad7AF789c124dcD7dFb1100071e30D"
+    ],
+    "BSB": [
+      "solana",
+      "8FSHsvyG5StNj1wH4YtdUp7nQBtXJWbXALthqestxVWK"
+    ],
+    "BTCB": [
+      "bsc",
+      "0x880CF5a587bdE2d8f6c14aa645a98DA1AD5602Bd"
+    ],
+    "BTT": [
+      "solana",
+      "HeprLb9U3Dj9bkgbi35ThCoJEwga9LVsGpqPJ426B7JN"
+    ],
+    "BTW": [
+      "solana",
+      "3DfLZza4hVpVywg1MkKgrfEDhZGEyFJSBnMoQmczoLhG"
+    ],
+    "CAKE": [
+      "ethereum",
+      "0x496A491090F55344545a6A0859745B0b653b4B5a"
+    ],
+    "CASH": [
+      "solana",
+      "3wijQvPKm6jHQrAkfPpok5o8WjCWPm1DGG17NmeW8q1w"
+    ],
+    "CAW": [
+      "ethereum",
+      "0x48D20b3e529fB3DD7D91293f80638dF582AB2Daa"
+    ],
+    "CBMEGA": [
+      "base",
+      "0x0150e3d89E161518C044ad191c4bdf6b40Df6E83"
+    ],
+    "CBXRP": [
+      "base",
+      "0xaAbA8e9c7038a9E1224Bb51150546242A1f64E5C"
+    ],
+    "CEL": [
+      "ethereum",
+      "0x638BC0940C623DF5094C5C176a087ba250dF4756"
+    ],
+    "CHECK": [
+      "ethereum",
+      "0x654382bfCE8660941624c381a9AD0954dAc48375"
+    ],
+    "CHIP": [
+      "solana",
+      "SaSvP232sdrqtvmKCFiyfFtZWmK2SNKDTL17zMRT66V"
+    ],
+    "CLANKER": [
+      "ethereum",
+      "0xbD56d7DE28DD880F7d6f5e62F48C81BD10BA0664"
+    ],
+    "CLO": [
+      "bsc",
+      "0xeA4d99d5fbBb904EE980C86EE2d376c36CFA0434"
+    ],
+    "CMC20": [
+      "bsc",
+      "0xB4bd7EC1df39806dF478d0Ce540580a118671eEA"
+    ],
+    "COAI": [
+      "solana",
+      "684Kv8qpwq5GzYBCvTtX32evPenPqyzS5BzZh63qK3pf"
+    ],
+    "COLLECT": [
+      "solana",
+      "72zXSG3iAGTnpmmiBhiY3xTEvXFxBXCNnqf9fYbpgG8t"
+    ],
+    "COMMON": [
+      "base",
+      "0x45dF01EFA0dE71725d4d8fC1165b102bC2E989Fb"
+    ],
+    "CROSS": [
+      "solana",
+      "5jHFMq2UxoXd5t3cCkJ5qhc6xwgW36WH5gfWeG6EVG1u"
+    ],
+    "CRV": [
+      "solana",
+      "57yjD8nryLRatAv7kocanwFc8YVRztQppC9tvpeJTV3D"
+    ],
+    "CTM": [
+      "ethereum",
+      "0xB3Ad2686b9e6a181A2c9A7CC43DC429833d443cd"
+    ],
+    "CVX": [
+      "solana",
+      "HvSrHAahUSotdaFGnEmBt7vg3bFSyxG9bBfimWdSip4C"
+    ],
+    "CYC": [
+      "bsc",
+      "0xcB3f6C0431c03b69905c300D8Ff1DA516ae4d5E7"
+    ],
+    "CYS": [
+      "solana",
+      "AmqcvbD3WGuZjxPRxfJhazuUFddQajctHd9ECJmqHz2r"
+    ],
+    "DBT": [
+      "bsc",
+      "0xa4D4Cf40d4eEe090B9454cd914709B45d406d7D4"
+    ],
+    "DCAI": [
+      "base",
+      "0x06831088c586D475E51c37c716f8F5c601793eF4"
+    ],
+    "DEXE": [
+      "solana",
+      "27Roivp11cCGmvKqRVsee2ZMrhaatg6b4RnHMSLLzSK7"
+    ],
+    "DEXTF": [
+      "base",
+      "0xC3F617c8A3DA6d286c8f97aF946A8f293632C852"
+    ],
+    "DIA": [
+      "arbitrum",
+      "0x3797927e7fc20F13F46b295F8889EA8050cb5e21"
+    ],
+    "DINO": [
+      "base",
+      "0x6a77CDeC82EFf6A6A5D273F18C1c27CD3d71A588"
+    ],
+    "DN": [
+      "bsc",
+      "0xA36E5b863c5570d5d2d43FA48Eaba6464ED731fb"
+    ],
+    "DODO": [
+      "ethereum",
+      "0x68Fa181c720C07B7FF7412220E2431ce90A65A14"
+    ],
+    "DRV": [
+      "ethereum",
+      "0xbFce4D7cb9F4F45618FfC692C0654578fF6DddAE"
+    ],
+    "EDGE": [
+      "solana",
+      "7LWQXj2npjb2FBVqJvAqvMjswaxw9hiRfEsxM2AFz1mB"
+    ],
+    "EIGEN": [
+      "solana",
+      "5YbwsLwnVLxNEVeoJqzEqdX82T3gx9f1i33i3yzLp5Kg"
+    ],
+    "ELEVATE": [
+      "ethereum",
+      "0x9103109ede61d0a698f28369f92b8619f5124f504028a8010403b144ff0be95d"
+    ],
+    "ENA": [
+      "solana",
+      "9KRYBXvCCF8ZWp7HMhNQdSSZ2GxxvY8DSQfLvLD3G6fo"
+    ],
+    "ESP": [
+      "ethereum",
+      "0x6674C1f84eAaa0cb6177b07c4B3e1Ca696E48a09"
+    ],
+    "ETHFI": [
+      "solana",
+      "Dyu2L7zGDzXC1WUhrYpgu4zWbp4ArkUAPz84Z7cW9EdN"
+    ],
+    "EVAA": [
+      "ethereum",
+      "0x27aAeBf362b41Bb2Be9EefaDb014CA6E4c608E5e"
+    ],
+    "EVA": [
+      "arbitrum",
+      "0x42a4755709DD1bBfe959b3DeA7200D4cB4f357D1"
+    ],
+    "FF": [
+      "solana",
+      "2J9vBDXoCTiTxPNxS4E1EXpS8UiVNPxMX2CmDQ5Nf5Cw"
+    ],
+    "FIGHT": [
+      "solana",
+      "agZ6Xw2tyjrtWFGvxmDnA3BruY8DuCvWA5bebWeJ5Vp"
+    ],
+    "FOLKS": [
+      "algorand",
+      "GRBADGJPWTG5LRGEICN3OJJ3PHNCY5Y5DV3D5LF4C2WJWLLZFCCWRW7ECA"
+    ],
+    "FWWBTC": [
+      "ethereum",
+      "0xf1Fe1725B9F529343659cbf0D990905DAaBE5c4a"
+    ],
+    "FWWETH": [
+      "blast",
+      "0x9BE8a40C9cf00fe33fd84EAeDaA5C4fe3f04CbC3"
+    ],
+    "GANA": [
+      "bsc",
+      "0xa2f464A2462AEd49B9b31eB8861bC6B0BBb0483F"
+    ],
+    "GENIUS": [
+      "solana",
+      "DP7P2jA9f3HpC5NSmk6ce3eeRJF73unAUvbDMkj27W3c"
+    ],
+    "GENZ": [
+      "solana",
+      "AhM1GVcW6wmh9wAUbd51ZCEkHJfb44Lxqm8N297j37xv"
+    ],
+    "GGBR": [
+      "ethereum",
+      "0xDe36CC5e1B401E2970a8d34EC7f1562d34b71944"
+    ],
+    "GMX": [
+      "solana",
+      "2LzNVzRtTCoJBeDU326Z5MY6VMWuSngqS25jRZSM3epi"
+    ],
+    "GNS": [
+      "solana",
+      "GbHWRZuF4U7CzN6ndtbnH1ShYeDCsJ3WqTYbJQx5dJvn"
+    ],
+    "GOATED": [
+      "bsc",
+      "0xc744be8190e2A4d9058294AfE86d43ad9FB118e7"
+    ],
+    "GOT": [
+      "bsc",
+      "0x1831Bb2723CED46e1b6c08d2f3ae50b2Ab9427B9"
+    ],
+    "GRAIL": [
+      "arbitrum",
+      "0x460D1D0bb89DD5b94Ad5e3Ef33912B2fd8BcD70E"
+    ],
+    "GRT": [
+      "solana",
+      "28E1enRdWYtMb9xyhQCi8EBbkgMv2fjWfXkbE6ZtPRuq"
+    ],
+    "GWEI": [
+      "ethereum",
+      "0x7123dCE669F88bc9F6dE6808984ccAfcef1D2645"
+    ],
+    "HANA": [
+      "solana",
+      "Czf2AwbAp1kmaF6aNNhiHB59WXyoiZsqrXFd5H2s7krr"
+    ],
+    "HEMI": [
+      "solana",
+      "31njXpJfBFPHMdbXGZdans47YgVvZc7hoFitZdTry1of"
+    ],
+    "HIGH": [
+      "robinhood",
+      "0xa51BddA57963C085e96f0FB18eA45443275CD620"
+    ],
+    "IBS": [
+      "bsc",
+      "0x2a4B99A9c4544D35e8D266111c50B67fEA01d53d"
+    ],
+    "ICNT": [
+      "solana",
+      "6cPZRESCPyvmXipK6VNV1Ug7dZxhJdrytHwUQFLt7Fed"
+    ],
+    "ICP": [
+      "solana",
+      "87Lb6j4TfVA3p6yJi4yb8JxsnsjogJjmL9wBPXJ1vfbS"
+    ],
+    "IDOL": [
+      "bsc",
+      "0xFff4857A955b2b460C27fD431aA5a85FABcA5559"
+    ],
+    "INJ": [
+      "solana",
+      "EAJqYgRhYXa2sNYANbWtMrYETqQAXbpfax9DUEhdioQB"
+    ],
+    "IN": [
+      "solana",
+      "AEdHF6wUEhcFyTeWrmQZfmTqDo45zccpQPpnWn81G8Cp"
+    ],
+    "JCT": [
+      "solana",
+      "Bah3uKKvtnpnpwvLMgBMjUo3YREbAYjL5cbbTK33qmXT"
+    ],
+    "JUDAO": [
+      "bsc",
+      "0x5D7b61e91cB59E90f7fAE8d0FE2e73976161592F"
+    ],
+    "KAITO": [
+      "solana",
+      "Db8Rc96MwzNv8pBP3J8zsxA5JZTQsb66vbxrkhpJuShZ"
+    ],
+    "KITE": [
+      "ethereum",
+      "0xC82425c38d82eb4622e62DFC6A6dfe9eAde119ae"
+    ],
+    "KITTY": [
+      "solana",
+      "7dNW2mhCtqoZcDuyRbj5LMoeFsS9TpaCdSkk4qMstGPm"
+    ],
+    "LAB": [
+      "solana",
+      "BUk7gzWafeu3YxqiV66Mp3MgNbZbdVHaJNq8W9mL2Pis"
+    ],
+    "LATI": [
+      "base",
+      "0x339b073007D7a61FCdDbfa7BdEb20b4Eb4CD7CCD"
+    ],
+    "LDO": [
+      "solana",
+      "DGX6Fe5yejtDFKhjXqrbePQjsLjYAU14gWR5eafwbHyd"
+    ],
+    "LIGHT": [
+      "solana",
+      "3CifkqcQfSESQ9HeJ4VWZaBD36jteVPeSr963Z55RG3a"
+    ],
+    "LINK": [
+      "solana",
+      "Cm3qRTeZQV6uztnNzy5TGm2eqLKUu63pvBnyr1mT3Hwe"
+    ],
+    "LMTS": [
+      "ethereum",
+      "0xa3369B1e517BF693362B6cd501C018B3d4DCd4e1"
+    ],
+    "LPT": [
+      "solana",
+      "FdKRDewNFfNi5JC2CxpniQRBxBiRNGCzrauZdoPMw4jC"
+    ],
+    "LRC": [
+      "solana",
+      "GrKLJb4VanBWw5M4q9QtEboeLUj8Azq85P9BNtMdk8Qh"
+    ],
+    "MANYU": [
+      "solana",
+      "2gTZs74bZ45ad1caEyybMRvJ3CByduASU7oBVMEDD693"
+    ],
+    "MATIC": [
+      "ethereum",
+      "0x819f3450dA6f110BA6Ea52195B3beaFa246062dE"
+    ],
+    "MEY": [
+      "base",
+      "0x77310Fc8950dd83a035769018f2a05b1E989a52a"
+    ],
+    "MIAU": [
+      "bsc",
+      "0x466D8C952F7DFBb0dE428006fa1E2ea3C22D033F"
+    ],
+    "MIGGLES": [
+      "ethereum",
+      "0xBC7029A8C097eb938c50C029931a14C9aa61374e"
+    ],
+    "MKR": [
+      "solana",
+      "5uYviDiZdX7ef4EP3Yd5pqukKfxPNd8HoNcDXpCDdCzq"
+    ],
+    "MOG": [
+      "ethereum",
+      "0xaa1a39e1DE75d201ddC9fd8dFCa23b8E35c7754a"
+    ],
+    "MORPHO": [
+      "solana",
+      "BP2hwEx4tGN2LbfX8Dh4Cty8NT9oECbrXjCNEgjnZ2Kc"
+    ],
+    "MOR": [
+      "arbitrum",
+      "0xE5Cf22EE4988d54141B77050967E1052Bd9c7F7A"
+    ],
+    "MYX": [
+      "solana",
+      "4i5VfXnX1Z4dFcLhZmiFWwS6tqjUsjeSGLY2sKhNchGg"
+    ],
+    "NOCK": [
+      "solana",
+      "3zgSnaKZMHm85eT7b8thcCm2xXfiLJQidaERBi68tx84"
+    ],
+    "NOX": [
+      "arbitrum",
+      "0xd3211dcd145990f740F8607FB0364080d718E3E3"
+    ],
+    "NVB": [
+      "bsc",
+      "0x5a5fD4DBF70747E684F43B43aB53d4b0C733293D"
+    ],
+    "ODOS": [
+      "base",
+      "0xb7068556049dF8Fb3ae77CCbb9611FE0e85B2641"
+    ],
+    "ODY": [
+      "bsc",
+      "0x51fF488A8D0303D6BE5Ff51a820684484ff7b755"
+    ],
+    "OFC": [
+      "solana",
+      "GEVmDg35jTSXPgEAqTMq27eWCyDtQXL7nFatpPUorWug"
+    ],
+    "OLY": [
+      "bsc",
+      "0x6865704FF097b1105Ed42B8517020e14Fe9A2ABD"
+    ],
+    "OMIC": [
+      "arbitrum",
+      "0xe4aD045aBB586dbDaE6b11A4d2c6FF5434B93Ed1"
+    ],
+    "ONDO": [
+      "ethereum",
+      "0xd1284ffa967FF2187bF2B3c12461404209dd5420"
+    ],
+    "ON": [
+      "bsc",
+      "0x4620F5C127A6055FbebB1f71327D60fF079C9060"
+    ],
+    "ORDER": [
+      "solana",
+      "BNLhvjYWz5UmihWYJWNBjK66MaQirQZiP3NQJ2krZnkd"
+    ],
+    "OSK": [
+      "bsc",
+      "0x5A4BbFA871F6CACb80cffFcb04d63f6366C7CB5F"
+    ],
+    "OUSDT": [
+      "base",
+      "0x4858bA5A92a23de1B2dBB3509B01D0A9F0E0756A"
+    ],
+    "OVPP": [
+      "solana",
+      "hHzgDvc3NGzEewA7DCxuuFHo2ceVoLpX2x1JhNFs3eJ"
+    ],
+    "OWB": [
+      "ethereum",
+      "0x738f90b045f7dce12353409C7eFA34Ad9D619038"
+    ],
+    "PENDLE": [
+      "solana",
+      "3vEpY4mYCzxKZa92GkdbmeVe3niRHNzZSnxPCk1RcMYE"
+    ],
+    "PEPE": [
+      "solana",
+      "GSzbpBLcD1SfwiPfSSwg9SKhWAfThP5w5BxmatD7zgTf"
+    ],
+    "PLAY": [
+      "solana",
+      "C6VRtqUU6cHDJdL7sgH1peSpQmWXJAoRs132jY7stFcP"
+    ],
+    "POP": [
+      "bsc",
+      "0xE5ce5bc4785CD2a246151364f5A190ceE3FDb142"
+    ],
+    "POWER": [
+      "solana",
+      "BDnNpLNvjw5NSwkgXmfQxSnrSQyTxqVYwEU53yuotmDc"
+    ],
+    "PRO": [
+      "solana",
+      "EFZtZMxK5uYQcgeW3VTUtkiGfXueJDEJkv1qkgCz4MkJ"
+    ],
+    "QNT": [
+      "solana",
+      "4ZccLeBgTDpCLsNpk77qdptQjZzR4fHvspGy1usmd8A3"
+    ],
+    "QUQ": [
+      "bsc",
+      "0xE1aCb466421eD24Dd8bd381D1205baD0ad43Ca9c"
+    ],
+    "QWLA": [
+      "base",
+      "0x551d9C1bFdd3f9De16A355fB44577bDa59eBfeF1"
+    ],
+    "RAIN": [
+      "ethereum",
+      "0x1432f3eae7fd2436A6895F9B5a69c08e444092B3"
+    ],
+    "RAVE": [
+      "ethereum",
+      "0x1d2D5cf2D09358708eF8519E4101755c0E5348c9"
+    ],
+    "RECALL": [
+      "base",
+      "0x0abe41C8AAa9282429e06EBEd48bE36298981d94"
+    ],
+    "RIVER": [
+      "solana",
+      "EBKijo9PxA5DdSmcgiWY9ojoY2opq4scgqnaH6VyiPM8"
+    ],
+    "ROAM": [
+      "bsc",
+      "0x30D59a44930B3994c116846EFe55fC8fcF608aa8"
+    ],
+    "SAFE": [
+      "solana",
+      "AvvdtLQuiUQSWQrc47Fji45Qnz86k4iKC6sTTaN82hCK"
+    ],
+    "SENTIS": [
+      "bsc",
+      "0xcdE6A9b157572b18493f6fDfe21Eb245D03d1fd7"
+    ],
+    "SENT": [
+      "ethereum",
+      "0xB67176b202eEA1809Aa5F4E2b74b44A505630c7E"
+    ],
+    "SERAPH": [
+      "solana",
+      "HrQP44U9GrhPmN8vV2Nh3bh3dD1xjWnM5rx8FMVjtmsT"
+    ],
+    "SHIB": [
+      "solana",
+      "57p4iwARAg6dXA5uB5GZnaN5StTgkEP9j7uJz1gNBBSS"
+    ],
+    "SKY": [
+      "solana",
+      "6WQ99oVU14tFxWQ242B71ua7tgjbMNkgcZ58Act3mLMR"
+    ],
+    "SLOP": [
+      "ethereum",
+      "0xa40f7c9bf63bafe3d3bcd09066dabb6322e51bb9c4c4ae0e3c2758b4755031b5"
+    ],
+    "SOGNI": [
+      "base",
+      "0xCc68Cb8B514A2216D2eECe3A0e8597Ce483610eb"
+    ],
+    "SOSO": [
+      "solana",
+      "G9xWZWSDKRCLnMBvLTPPRPPKG819JXSXRzxAuM5mbtef"
+    ],
+    "SPR": [
+      "bsc",
+      "0xABE0e16758E0EC57848a092285Ace3B384C58d88"
+    ],
+    "SPX": [
+      "solana",
+      "FakRyBq5K2sNCy8aTnbZN9uFUBRbJ646sHNJgfw5BtUC"
+    ],
+    "STABLE": [
+      "solana",
+      "F8hkwrEiEqr1UEkFSpwoks7DN74r6kU8vEbYL2e5mTyE"
+    ],
+    "STAR": [
+      "bsc",
+      "0xB4Db9FCdA97fd7B02eAf1e8317E6DdB04BaCC1AF"
+    ],
+    "ST": [
+      "solana",
+      "9GuYRPtyqctKszyXKH7vtm2HSPRQBJG4AvY2tLo8cqFM"
+    ],
+    "SUSDAI": [
+      "plasma",
+      "0xDfaE1f0B31Dc661673Cc4459BFfEF73ae4a70bC5"
+    ],
+    "SYN": [
+      "robinhood",
+      "0x70098F3b4Bea4E88170AE07619586f017f1636F7"
+    ],
+    "SYRUP": [
+      "solana",
+      "HBw2eTi4EYS6kE8V79s7Bm17GdECLHVmsUkYFUtuXkEr"
+    ],
+    "TAG": [
+      "ethereum",
+      "0xA34442356C26466eC06160107b0C0fE6085BE0be"
+    ],
+    "TAKE": [
+      "solana",
+      "4C8DaTN7gMEVbdbdJjggVkMqhwHYgePfHLebXLEUEFKk"
+    ],
+    "TBTC": [
+      "ethereum",
+      "0x4F52C3a81E33521e5a9A47FD9D3BE475D2279c2e"
+    ],
+    "THREE": [
+      "solana",
+      "A2nSwvTKSoFhiyhyJjyeMsemUTpWcqkJFTBhv3ZtNkqx"
+    ],
+    "TOWNS": [
+      "solana",
+      "5cPn9cWbjjfrrCZZFojd3BNSbZosfnT5t8jFFYjQQPwx"
+    ],
+    "TRADOOR": [
+      "solana",
+      "DRxMn6UKmVjVpTEe1kNMnzXDjCZEQ4saicLGqRFFnFZT"
+    ],
+    "TRIA": [
+      "solana",
+      "EjjoFpKP4uh6QXDtjx3VWAoEKsFVWjHhRf8TnLtEDpK8"
+    ],
+    "TRUST": [
+      "base",
+      "0x17f707CF3EDBbd5d9251D4bCDF9Ad70a247D7B84"
+    ],
+    "UAI": [
+      "solana",
+      "FMDEGDEHAnHtRdTGktSfdYMApg1UQRoVvmypecybhMqz"
+    ],
+    "UB": [
+      "solana",
+      "F2hdmZAJ8UVmJmUgtaHFpp3GTc3Yu2mvtRYS2wPUqKbE"
+    ],
+    "UNI": [
+      "solana",
+      "ELc9Jsm6n13QAFjzSJpzAmgoecpBgwAPvfyPpgj6jq99"
+    ],
+    "UP": [
+      "solana",
+      "14PGvPdCJYbB8wjezAhARV9dq4FwPJY5yGUr1fU39jd7"
+    ],
+    "USDBC": [
+      "base",
+      "0x0C659734f1eEF9C63B7Ebdf78a164CDd745586Db-0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA-0xEB466342C4d449BC9f53A865D5Cb90586f405215"
+    ],
+    "USDDD": [
+      "bsc",
+      "0xBBb461d2246FAd4eaA7306f369751bf7B72320a1"
+    ],
+    "VANRY": [
+      "solana",
+      "HEuCHgEMtaMVcZJu9AgYoQdNhhK9jZAPzLfkND3j3E87"
+    ],
+    "VC": [
+      "bsc",
+      "0xc6dDdcF94e53F8997DAb999a32A3AA8fd3F7F106"
+    ],
+    "VELVET": [
+      "solana",
+      "EEq98vKtf7GiPxxxy7928UkevP4HBZvgHW5G8zF1sENs"
+    ],
+    "VERSE": [
+      "solana",
+      "2tpfsLfP4Zw3N22PM8SijZqJdVMLs6t5jp3koFm2vZWU"
+    ],
+    "VIRTUAL": [
+      "solana",
+      "6md9oiuGw3XRGKJn81EbShPxg8osWiauZ2yb2SGqDEKH"
+    ],
+    "VSN": [
+      "solana",
+      "EYhJ6X3cQymuQMuwn3MyEThxRPGMkFCraPMf3SoUWTDn"
+    ],
+    "VVV": [
+      "ethereum",
+      "0xCF3679e9680564B4116556A84a2F071E0CBEB62b"
+    ],
+    "WKEYDAO2": [
+      "bsc",
+      "0xB720eA2a201C03578CcA05191E8b4ab859704cFe"
+    ],
+    "WLD": [
+      "solana",
+      "Fkg67Rq5MkhNd9k8qQnDxrZpAcTS4uhU48wPbhbqPNYP"
+    ],
+    "WMAI": [
+      "bsc",
+      "0x583788e138DEB72D674c96DD220566e28355b569"
+    ],
+    "WMSTRX": [
+      "ethereum",
+      "0xf79Bd76bEfcEf6F117311220aDa482588b3Ff9E4"
+    ],
+    "WOD": [
+      "bsc",
+      "0xCF39e58ed4deCc9ef7Bdb2F9335602DC22BE99b4"
+    ],
+    "WOJAK": [
+      "ethereum",
+      "0xeF5969ae429E0046628D95960567330b6ead427A"
+    ],
+    "WOO": [
+      "solana",
+      "FnzuTa5UobMMrfykXj4HZr1U6rDw5j2qUQkfvYgZFTPG"
+    ],
+    "WORLDCUP": [
+      "solana",
+      "CEBak9ZnkpZnejTSNCq6bsHeWmaT1F4hBJVe9wRLwZTw"
+    ],
+    "XAN": [
+      "solana",
+      "9C9pju1RwTsnxeYvFETGw1ZT7q9D3Jif4JTwSZBBRN7w"
+    ],
+    "XAUT0": [
+      "solana",
+      "7WQcQi2dDgZDnpJKwoY7F9cALk3QEUG4kAyhtjZVkVa1"
+    ],
+    "XPIN": [
+      "solana",
+      "FPweecQepPNtFWoCidVUreiENAdfpkqWcU4mcidYGAbN"
+    ],
+    "XPL": [
+      "solana",
+      "Bgj1fNJDiqpznZ9447kNVqE5onnHLVHJtG1CTxQiqDsF"
+    ],
+    "XPR": [
+      "solana",
+      "DbH7KTyDyt7iEqoedjv9NGVFqSvcXW3AZY7Sge51EwTB"
+    ],
+    "XPULS": [
+      "bsc",
+      "0xd7501eC4223CF439dA3606E038E463EEEAAF1627"
+    ],
+    "XTTA": [
+      "base",
+      "0x4c1408aA015a7108cB03242aEE80E8B6e5c8dd7d"
+    ],
+    "ZAMA": [
+      "ethereum",
+      "0x28cBb15E09cb865ACF350296F3c1B6585518Cc07"
+    ],
+    "ZBT": [
+      "ethereum",
+      "0xC204d7E0A207b2b819e7aF361FEe68546a42755F"
+    ],
+    "ZEN": [
+      "solana",
+      "npf3icSJ7EudPgECyR8pq67U17Xzbu47nzdbBmsNRko"
+    ],
+    "ZORA": [
+      "solana",
+      "2Ait6atzYHbwMrbT7sKpZBaZuUY12Z2VTkhtAKGPJTxs"
+    ],
+    "ZRO": [
+      "solana",
+      "82auu4vBEtoduMXfL4jDzyF6yoAN26wLpFHVteVqzYAS"
+    ]
+  }
+}

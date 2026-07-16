@@ -38,8 +38,8 @@ INITIAL = 10000.0
 FETCH = True          # no live DEX fetch endpoint wired; uses dex_data/ on disk
 LOOKBACK = 40
 
-print(f"\n=== paper_trader_dex run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
-print("START paper_trader_dex.py", flush=True)
+print(f"\n=== dex_screen_1d run: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ===", flush=True)
+print("START dex_screen_1d.py", flush=True)
 
 
 def _col(df, name):

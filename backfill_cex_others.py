@@ -150,10 +150,14 @@ def main():
         if err:
             print(f"  ERR {err}", flush=True)
             continue
+        # sort ascending + dedupe (API returns newest-first per page)
+        if tgt.exists():
+            d = pd.read_csv(tgt, parse_dates=["ts"]).sort_values("ts").drop_duplicates("ts")
+            d.to_csv(tgt, index=False)
         n = 0
         if tgt.exists():
             n = sum(1 for _ in open(tgt)) - 1
-        print(f"  wrote {n} rows so far -> {tgt.name}", flush=True)
+        print(f"  wrote {n} rows -> {tgt.name}", flush=True)
     print(f"{args.venue} backfill done.", flush=True)
 
 

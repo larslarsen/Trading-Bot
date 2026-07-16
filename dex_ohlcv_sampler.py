@@ -72,8 +72,8 @@ def append_bar(tok, tf, bar):
     }])
     if tgt.exists():
         old = pd.read_csv(tgt, parse_dates=["ts"])
-        last = int(old["ts"].astype("int64").max()) // 10**9 if len(old) else 0
-        if ts <= last:
+        last = old["ts"].max()  # tz-aware datetime (pandas 3.0 = [us, UTC])
+        if pd.to_datetime(ts, unit="s", utc=True) <= last:
             return 0  # already have this bar
         out = pd.concat([old, new]).drop_duplicates(subset=["ts"]).sort_values("ts")
     else:

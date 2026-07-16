@@ -10,6 +10,7 @@ add a row. Naming rule: `<venue>_<strategy>_<tf>` so logs/models are unambiguous
 | cex_multi_screen_1d.py  | cex_multi_screen_1d        | CEX   | Multi-coin screen   | 1d   | rule-based screen   | MEXC 1d klines                  | logs/cex_multi_screen_1d.log + trade_journal_multi.json |
 | dex_screen_1d.py        | dex_screen_1d              | DEX   | Retail-alt screen (rule) | 1d | rule-based        | dex_data/<TOK>_1d_max.csv       | logs/dex_screen_1d.log + trade_journal_dex.json |
 | dex_ml_xgb_1d.py        | dex_ml_xgb_1d              | DEX   | ML XGBoost pooled cross-token (ranked) | 1d | models/dex_xgb.json (ONE pooled model, all tokens) | dex_data/<TOK>_1d_max.csv | logs/dex_ml_xgb_1d.log + trade_journal_dex_ml.json |
+| cex_ml_xgb_1d.py        | cex_ml_xgb_1d              | CEX   | ML XGBoost pooled cross-symbol (ranked) | 1d | models/cex_1d_xgb.json (ONE pooled model, all symbols) | data/<SYM>_1d_max.csv | logs/cex_ml_xgb_1d.log + trade_journal_cex_1d_ml.json |
 | cex_donchian_1d.py      | cex_donchian_1d            | CEX   | Donchian 40         | 1d   | rule (canonical)    | data/<SYM>_1d_max.csv (CEX)     | (paused)                        |
 
 Legacy (superseded, kept for tests/reference, NOT run):
@@ -22,6 +23,7 @@ Legacy (superseded, kept for tests/reference, NOT run):
 | model_trainer.py    | train_ml_xgb         | Trains XGBoost 3-class per CEX pair on fetch_data() (+multi-asset+DEX breadth) | models/latest_xgb.json (BTC) |
 |                     |                      | `--symbol DOGE` trains DOGE -> models/doge_xgb.json       | models/<sym>_xgb.json           |
 | train_dex_ml.py     | train_dex_ml         | ONE pooled cross-token XGBoost over ALL dex_data tokens (per-token features, chronological split) | models/dex_xgb.json |
+| train_cex_1d_ml.py  | train_cex_1d_ml      | ONE pooled cross-symbol XGBoost over ALL CEX 1d symbols (per-symbol features, chronological split) | models/cex_1d_xgb.json |
 | walk_forward_validate.py | eval_wf_xgb      | OOS walk-forward of the ML approach                       | models/walk_forward_report.json |
 
 ## Data backfill (free sources only: GeckoTerminal/DEX, CDD/Binance/Blockchain.com, BloFin)
@@ -65,9 +67,11 @@ Logs: logs/data_poller.log. Commands:
 
 ## Cron jobs (active) -- trading bots only (data is systemd now)
 - weekly_model_retrain (train_ml_xgb): Sundays 00:00
-- (PAUSED) donchian_paper_trader (cex_donchian_1d): daily 14:00
-- (PAUSED) DEX paper trader (dex_screen_1d): daily 07:05
-- paper_trader_multi.py (cex_multi_screen_1d): daily 00:05 UTC (cron)
-- paper_trader_dex.py (dex_screen_1d): daily 00:07 UTC (cron)
-NOTE: the two paper_trader cron jobs are trading execution, not data. They
-could also be moved to systemd later; left on cron for now.
+- cex_multi_screen_1d.py: daily 00:05 UTC -> logs/cex_multi_screen_1d.log
+- dex_screen_1d.py: daily 00:07 UTC -> logs/dex_screen_1d.log
+- dex_ml_xgb_1d.py: daily 00:09 UTC -> logs/dex_ml_xgb_1d.log
+- cex_ml_xgb_1d.py: daily 00:11 UTC -> logs/cex_ml_xgb_1d.log
+- (PAUSED) cex_donchian_1d.py
+Rule: 1d bots = cron (staggered); 5m bots = systemd daemons.
+The one daemon trading bot: cex_ml_xgb_5m (systemd trading-bot-ml-multi.service).
+NOTE: a future dex_ml_xgb_5m would ALSO be a daemon -- waits on DEX 5m depth.

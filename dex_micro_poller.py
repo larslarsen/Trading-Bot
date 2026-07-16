@@ -55,18 +55,24 @@ def resolve_address(tok):
         return None
     pairs = (r.json() or {}).get("pairs") or []
     PREF = {"ethereum": 0, "polygon": 1, "bsc": 2, "base": 3, "arbitrum": 4}
-    best = None
+    norm = lambda s: (s or "").upper().lstrip("$").strip()
+    q = norm(tok)
+    exact = None      # best credible-chain EXACT-symbol match
+    fallback = None   # best credible-chain pair by liquidity (any symbol)
     for p in pairs:
         base = (p.get("baseToken") or {}).get("symbol", "")
-        if base.upper() != tok.upper():
-            continue
         chain = p.get("chainId", "")
         liq = float(p.get("liquidity", {}).get("usd") or 0)
         pref = PREF.get(chain, 9)
-        score = (pref, -liq)  # lower pref wins; tie-break by higher liquidity
-        if best is None or score < best[0]:
-            best = (score, (chain, p.get("baseToken", {}).get("address")))
-    return best[1] if best else None
+        if norm(base) == q:
+            score = (pref, -liq)
+            if exact is None or score < exact[0]:
+                exact = (score, (chain, p.get("baseToken", {}).get("address")))
+        if fallback is None or (pref, -liq) < fallback[0]:
+            fallback = ((pref, -liq), (chain, p.get("baseToken", {}).get("address")))
+    # exact symbol match on a credible chain is authoritative; otherwise
+    # best-effort capture the top credible-chain pair so breadth isn't dropped
+    return (exact or fallback)[1] if (exact or fallback) else None
 
 
 def poll_token(tok):

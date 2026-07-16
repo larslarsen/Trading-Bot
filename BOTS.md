@@ -32,7 +32,10 @@ add a row. Naming rule: `<venue>_<strategy>_<tf>` so logs/models are unambiguous
 - Data files: `<SYM>_<tf>_<venue>_max.csv`  (venue = dex | cex | blofin)
 - Model files: `models/<sym>_xgb.json` ; BTC default = `models/latest_xgb.json`
 - Journal files: `trade_journal_<venue>_<strategy>.json`
-- Log files: stdout -> `/tmp/<registry_name>.log` when run under cron
+- Log files: named by registry (`logs/<registry_name>.log`).
+  - Data poller (systemd): `logs/data_poller.log` (all 4 workers, tagged).
+  - Paper traders (cron): `logs/cex_multi_screen_1d.log`, `logs/dex_screen_1d.log`.
+  - model_server (cex_ml_xgb_5m bot's signal source): `logs/model_server.log`.
 
 ## Data collection (systemd-managed, NOT cron)
 | Service file | Registry name | What it does | Coverage |

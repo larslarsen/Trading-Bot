@@ -184,17 +184,154 @@ def universe_worker(s, once):
         time.sleep(3600)  # check hourly
 
 
+def cex_extra_topup_worker(once):
+    """Top-up the extra CEX venues (Bybit/OKX/MEXC 5m) + Bybit funding rates
+    that the one-shot backfills produced, so they stay current ('all the data,
+    all the time'). Reuses backfill_cex_others + backfill_funding_mexc funcs."""
+    import backfill_cex_others as bco
+    import backfill_funding_mexc as bfm
+    DATADIR = REPO / "data"
+    EXTRA = {
+        "bybit": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+                  "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "MATICUSDT"],
+        "okx": ["BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT", "XRP-USDT",
+                "ADA-USDT", "DOGE-USDT", "AVAX-USDT", "LINK-USDT", "MATIC-USDT"],
+        "mexc": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+                 "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "MATICUSDT"],
+    }
+    FUND = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+            "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "LINKUSDT", "MATICUSDT"]
+    while True:
+        try:
+            # 5m top-up per venue
+            for venue, syms in EXTRA.items():
+                for sym in syms:
+                    try:
+                        tgt = DATADIR / f"{sym}_5m_max.csv"
+                        last = None
+                        if tgt.exists():
+                            d = pd.read_csv(tgt, parse_dates=["ts"])
+                            if len(d):
+                                last = int(d["ts"].max().timestamp() * 1000) + 1
+                        start = last or int(pd.Timestamp("2021-01-01", tz="UTC").timestamp() * 1000)
+                        if venue == "bybit":
+                            rows, err = bco.bybit_klines(sym, start, 1000)
+                        elif venue == "okx":
+                            # okx_klines walks backward from after_ms; use now to grab recent
+                            rows, err = bco.okx_klines(sym.replace("-", ""), int(time.time() * 1000), 200)
+                        else:
+                            rows, err = bfm.mexc_klines(sym, start)
+                        if err or not rows:
+                            continue
+                        df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
+                        df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+                        if tgt.exists():
+                            old = pd.read_csv(tgt, parse_dates=["ts"]).set_index("ts")
+                            df = pd.concat([old, df.set_index("ts")]).sort_index()
+                            df = df[~df.index.duplicated(keep="last")]
+                        else:
+                            df = df.set_index("ts")
+                        df.to_csv(tgt)
+                        if sym == syms[0]:
+                            print(f"  [extra {venue}] topped {sym} -> {len(df)} rows", flush=True)
+                    except Exception as e:
+                        print(f"  [extra {venue} {sym}] err {str(e)[:120]}", flush=True)
+            # funding top-up
+            fdir = DATADIR / "funding"
+            fdir.mkdir(parents=True, exist_ok=True)
+            end_ms = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
+            for sym in FUND:
+                try:
+                    tgt = fdir / f"{sym}_funding.csv"
+                    cursor = int(pd.Timestamp("2019-01-01", tz="UTC").timestamp() * 1000)
+                    if tgt.exists():
+                        o = pd.read_csv(tgt, parse_dates=["ts"])
+                        if len(o):
+                            cursor = int(o["ts"].max().timestamp() * 1000) + 1
+                            if cursor > end_ms - 8 * 3600 * 1000:  # already fresh
+                                continue
+                    rows, err = bfm.bybit_funding(sym, cursor, end_ms, limit=200, win_ms=10 * 86400 * 1000)
+                    if err or not rows:
+                        continue
+                    df = pd.DataFrame(rows, columns=["ts", "funding_rate"])
+                    df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+                    if tgt.exists():
+                        old = pd.read_csv(tgt, parse_dates=["ts"]).set_index("ts")
+                        df = pd.concat([old, df.set_index("ts")]).sort_index()
+                        df = df[~df.index.duplicated(keep="last")]
+                    else:
+                        df = df.set_index("ts")
+                    df["interval_hours"] = 8
+                    df.to_csv(tgt)
+                except Exception as e:
+                    print(f"  [funding {sym}] err {str(e)[:120]}", flush=True)
+            print("  [extra] top-up pass done", flush=True)
+        except Exception as e:
+            print(f"  [extra] worker error: {e}", flush=True)
+        if once:
+            return
+        time.sleep(3600)  # top-up hourly
+
+
+def onchain_topup_worker(once):
+    """Top-up on-chain feature CSVs (BTC/ETH + 5 new SonarX chains) so they stay
+    current. Reuses backfill_onchain.list_days + daily_features."""
+    import backfill_onchain as bon
+    CHAINS = ["btc", "eth", "base", "arbitrum", "aptos", "provenance", "xrp"]
+    while True:
+        try:
+            for chain in CHAINS:
+                try:
+                    days = bon.list_days(chain)
+                    if not days:
+                        continue
+                    tgt = bon.OUT / f"{chain}_features_daily.csv"
+                    done = set()
+                    if tgt.exists():
+                        old = pd.read_csv(tgt)
+                        done = set(old["date"].astype(str))
+                    fresh = [d for d in days if d not in done]
+                    if not fresh:
+                        continue
+                    rows = []
+                    for d in fresh[-30:]:  # only recent gap (rest is history)
+                        try:
+                            f = bon.daily_features(chain, d)
+                            if f:
+                                rows.append(f)
+                        except Exception:
+                            pass
+                    if rows:
+                        out = pd.DataFrame(rows).set_index("date").sort_index()
+                        if tgt.exists():
+                            o = pd.read_csv(tgt).set_index("date")
+                            out = pd.concat([o, out]).drop_duplicates()
+                        out.to_csv(tgt)
+                        print(f"  [onchain {chain}] +{len(out)} days", flush=True)
+                except Exception as e:
+                    print(f"  [onchain {chain}] err {e!r}"[:160], flush=True)
+            print("  [onchain] top-up pass done", flush=True)
+        except Exception as e:
+            print(f"  [onchain] worker error: {e}", flush=True)
+        if once:
+            return
+        time.sleep(6 * 3600)  # on-chain top-up every 6h
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="one pass of each worker then exit")
     args = ap.parse_args()
     s = load_state()
-    print("data_poller: starting workers (CEX 5m sweep + DEX micro + DEX forward + DEX universe)", flush=True)
+    print("data_poller: starting workers (CEX 5m sweep + DEX micro + DEX forward + "
+          "DEX universe + extra CEX top-up + on-chain top-up)", flush=True)
     threads = [
         threading.Thread(target=cex_worker, args=(s, args.once), daemon=True),
         threading.Thread(target=micro_worker, args=(args.once,), daemon=True),
         threading.Thread(target=dex_fwd_worker, args=(args.once,), daemon=True),
         threading.Thread(target=universe_worker, args=(s, args.once), daemon=True),
+        threading.Thread(target=cex_extra_topup_worker, args=(args.once,), daemon=True),
+        threading.Thread(target=onchain_topup_worker, args=(args.once,), daemon=True),
     ]
     for t in threads:
         t.start()

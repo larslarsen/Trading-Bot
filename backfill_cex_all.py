@@ -160,22 +160,59 @@ def _months_since(start_ms):
         d = (d.replace(day=28) + timedelta(days=7)).replace(day=1)
 
 
+def _zip_exists(sym, tf, yy, mm):
+    """Cheap HEAD-like check: does this monthly ZIP exist? (avoids downloading)."""
+    url = f"{CDN}/monthly/klines/{sym}/{tf}/{sym}-{tf}-{yy:04d}-{mm:02d}.zip"
+    try:
+        r = requests.head(url, timeout=20)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def first_available_month(sym, tf, start_ms):
+    """Find the earliest monthly ZIP that exists, so we skip the dead pre-listing
+    404 span (2010->listing). Probe January of each year forward from start; once
+    a year has data, narrow to the first month in that year."""
+    start_year = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).year
+    now = datetime.now(timezone.utc)
+    for yy in range(start_year, now.year + 1):
+        # coarse: does any of this year exist? probe a few months
+        hit_year = any(_zip_exists(sym, tf, yy, mm) for mm in (1, 4, 7, 10))
+        if not hit_year and yy < now.year:
+            continue
+        for mm in range(1, 13):
+            if (yy, mm) > (now.year, now.month):
+                break
+            if _zip_exists(sym, tf, yy, mm):
+                return yy, mm
+    return None
+
+
 def pull_bulk(sym, tf, start_ms):
     """Deep history via monthly ZIPs + current month via daily ZIPs. Returns
-    12-field kline rows >= start_ms (dedup/sort handled by caller)."""
+    12-field kline rows >= start_ms (dedup/sort handled by caller). Skips the
+    dead pre-listing 404 span by locating the first available month first."""
     out = []
     now = datetime.now(timezone.utc)
+    fam = first_available_month(sym, tf, start_ms)
+    if fam is None:
+        # no monthly data at all; try current-month dailies only
+        first = (now.year, now.month)
+    else:
+        first = fam
     for (yy, mm) in _months_since(start_ms):
-        # current month has no monthly ZIP yet -> use daily ZIPs
+        if (yy, mm) < first:
+            continue
         if (yy, mm) == (now.year, now.month):
             for day in range(1, now.day + 1):
-                url = f"{CDN}/daily/klines/{sym}/{tf}/{sym}-{tf}-{yy:04d}-{mm:02d}-{day:02d}.zip"
-                rows = _fetch_zip_csv(url)
+                rows = _fetch_zip_csv(
+                    f"{CDN}/daily/klines/{sym}/{tf}/{sym}-{tf}-{yy:04d}-{mm:02d}-{day:02d}.zip")
                 if rows:
                     out.extend(rows)
         else:
-            url = f"{CDN}/monthly/klines/{sym}/{tf}/{sym}-{tf}-{yy:04d}-{mm:02d}.zip"
-            rows = _fetch_zip_csv(url)
+            rows = _fetch_zip_csv(
+                f"{CDN}/monthly/klines/{sym}/{tf}/{sym}-{tf}-{yy:04d}-{mm:02d}.zip")
             if rows:
                 out.extend(rows)
     return [r for r in out if r[0] >= start_ms]

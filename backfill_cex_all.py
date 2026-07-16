@@ -22,10 +22,12 @@ REPO = Path(__file__).parent
 CEX = REPO / "data" / "cex"
 CEX.mkdir(parents=True, exist_ok=True)
 SYMS_FILE = REPO / "all_binance_usdt.txt"
-TFS = ["5m", "1h", "4h", "1d"]
+TFS = ["5m"]  # only 5m from API; 1h/4h/1d derived locally (derive_cex_tf.py)
+# (previously ["5m","1h","4h","1d"]; pulling higher TFs directly is redundant
+#  once full-depth 5m exists -- resampling is exact and costs zero API calls)
 BASE = "https://data-api.binance.vision/api/v3/klines"
 LIMIT = 1000
-SLEEP = 0.3          # modest pause between pages (mirror tolerates this)
+SLEEP = 0.5          # per-page pause; mirror has a per-IP limit, so 2 workers
 BACKOFF = 10         # seconds on HTTP 429
 MAX_NEW_PER_PULL = 1_000_000  # safety cap to avoid runaway
 

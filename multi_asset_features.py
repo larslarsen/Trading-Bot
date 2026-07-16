@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""
-Multi-asset cross features for BTC/USDT prediction.
-Uses the universal multi-asset CSV schema: ts, symbol, open, high, low, close, volume
+"""Multi-asset cross features for single-pair ML models.
+
+Builds cross-asset context (relative returns, ratios, rolling correlation vs
+the BTC benchmark) from a universal multi-asset CSV (ts, symbol, open, high,
+low, close, volume). The file is the source of truth for which assets are
+available; BTCUSDT must be present as the benchmark base.
 """
 import pandas as pd
 from pathlib import Path
 
-PAIRS = ['ETHUSDT', 'SOLUSDT', 'BTCUSDT']
 LAGS = [1, 3, 6, 12, 24]  # bars ahead for return lookback on 5m series
 
 
@@ -19,7 +21,9 @@ def load_multi(path):
     if 'ts' in df.columns and df['ts'].dt.tz is None:
         df['ts'] = df['ts'].dt.tz_localize('UTC')
     df = df.rename(columns={'ts': 'timestamp'})
-    df = df[df['symbol'].isin(PAIRS)].copy()
+    # Accept whatever symbols the file carries (BTCUSDT is required as the
+    # benchmark base; see make_cross_features). Do NOT whitelist — the file is
+    # the source of truth for which cross-assets are available for the era.
     return df
 
 
@@ -52,12 +56,28 @@ def make_cross_features(df_btc, df_multi) -> pd.DataFrame:
         'timestamp', 'btc_close', 'btc_volume'] + [f'{s}_close' for s in others] + [f'{s}_volume' for s in others]]
     cross = cross[keep].copy()
 
-    if 'timestamp' in df_btc.columns:
-        df_btc = pd.merge(df_btc, cross, on='timestamp', how='left')
-    return df_btc
+    # Join cross-asset features onto the target frame by its DatetimeIndex.
+    # The target's time is the index (named 'ts'), NOT a 'timestamp' column, so
+    # a column-name merge would silently skip and drop all cross features.
+    cross = cross.set_index('timestamp')
+    if not isinstance(df_btc.index, pd.DatetimeIndex):
+        # Defensive: if caller passed a 'timestamp' column instead of an index,
+        # align on it rather than dropping the features.
+        if 'timestamp' in df_btc.columns:
+            df_btc = df_btc.set_index('timestamp')
+        else:
+            print('[multi] target frame has no time index/column; skipping cross features')
+            return df_btc
+    return df_btc.join(cross, how='left')
 
 
 def add_multi_asset_features(df, multi_path='multi_5m.csv'):
+    """Attach cross-asset features. Returns (df, added_cols) where added_cols
+    is the list of new column names (so callers can include them in the model
+    feature set — they are generated dynamically and are NOT in ALL_FEATURES).
+    """
+    cols_before = set(df.columns)
     df_multi = load_multi(multi_path)
     df = make_cross_features(df, df_multi)
-    return df
+    added = [c for c in df.columns if c not in cols_before]
+    return df, added

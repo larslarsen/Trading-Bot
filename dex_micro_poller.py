@@ -112,8 +112,8 @@ def main():
             # skip if polled very recently
             if path.exists():
                 try:
-                    last = pd.read_csv(path, usecols=["ts"]).iloc[-1]["ts"]
-                    if (pd.Timestamp.utcnow() - pd.to_datetime(last, utc=True)).total_seconds() < MIN_INTERVAL:
+                    last = pd.read_csv(path, usecols=["ts"], parse_dates=["ts"]).iloc[-1]["ts"]
+                    if (pd.Timestamp.now("UTC") - pd.to_datetime(last, utc=True)).total_seconds() < MIN_INTERVAL:
                         continue
                 except Exception:
                     pass
@@ -123,7 +123,7 @@ def main():
                     print(f"  {tok}: {err}")
                 time.sleep(SLEEP)
                 continue
-            row = {"ts": pd.Timestamp.utcnow(), **rec}
+            row = {"ts": pd.Timestamp.now("UTC"), **rec}
             df = pd.DataFrame([row])
             if path.exists():
                 old = pd.read_csv(path)
@@ -133,7 +133,7 @@ def main():
             if done % 50 == 0:
                 print(f"  polled {done}/{len(toks)}")
             time.sleep(SLEEP)
-        print(f"cycle done: {done} tokens updated at {pd.Timestamp.utcnow()}")
+        print(f"cycle done: {done} tokens updated at {pd.Timestamp.now('UTC')}")
         if args.loop <= 0:
             break
         time.sleep(args.loop)

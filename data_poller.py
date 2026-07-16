@@ -306,7 +306,7 @@ def onchain_topup_worker(once):
                     if not fresh:
                         continue
                     rows = []
-                    for d in fresh[-30:]:  # only recent gap (rest is history)
+                    for d in fresh:  # all missing days; done-set prevents redo next pass
                         try:
                             f = bon.daily_features(chain, d)
                             if f:

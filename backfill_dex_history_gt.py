@@ -143,6 +143,8 @@ def main():
     ap.add_argument("--tokens", default="")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--tf", default="day")
+    ap.add_argument("--sleep", type=float, default=3.0,
+                    help="seconds between tokens (throttle so the 1m daemon keeps API budget)")
     args = ap.parse_args()
     if args.tokens:
         toks = [t.strip() for t in args.tokens.split(",") if t.strip()]
@@ -163,7 +165,7 @@ def main():
             if n: done += 1
         except Exception as ex:
             print(f"  {tok}: EXC {str(ex)[:80]}", flush=True)
-        time.sleep(0.5)
+        time.sleep(args.sleep)
     print(f"dex history backfill done. {done}/{len(toks)} succeeded.", flush=True)
 
 

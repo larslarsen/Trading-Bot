@@ -83,20 +83,28 @@ def append_bar(tok, tf, bar):
 
 
 def derive_tfs(tok, base_tf="1m"):
-    """Derive 1h/4h/1d from the 1m (or 5m) base by resampling."""
+    """Derive higher TFs from the base (1m or 5m) by resampling.
+
+    1m base -> derive 5m, 1h, 4h, 1d. 5m base -> derive 1h, 4h, 1d (skip 5m).
+    """
     base = OUT_DIR / f"{tok}_{base_tf}_max.csv"
     if not base.exists():
         return
     d = pd.read_csv(base, parse_dates=["ts"]).set_index("ts").sort_index()
-    for tf in ("1h", "4h", "1d"):
-        r = d["close"].resample(tf).last()
-        o = d["open"].resample(tf).first()
-        h = d["high"].resample(tf).max()
-        l = d["low"].resample(tf).min()
-        v = d["volume"].resample(tf).sum()
+    # (filename_suffix, resample_alias) -- pandas 3.0 needs '5min' not '5m'
+    if base_tf == "1m":
+        tfs = (("5m", "5min"), ("1h", "1h"), ("4h", "4h"), ("1d", "1d"))
+    else:
+        tfs = (("1h", "1h"), ("4h", "4h"), ("1d", "1d"))
+    for suffix, alias in tfs:
+        r = d["close"].resample(alias).last()
+        o = d["open"].resample(alias).first()
+        h = d["high"].resample(alias).max()
+        l = d["low"].resample(alias).min()
+        v = d["volume"].resample(alias).sum()
         out = pd.DataFrame({"open": o, "high": h, "low": l, "close": r, "volume": v}).dropna()
         out.index.name = "ts"
-        out.reset_index().to_csv(OUT_DIR / f"{tok}_{tf}_max.csv", index=False)
+        out.reset_index().to_csv(OUT_DIR / f"{tok}_{suffix}_max.csv", index=False)
 
 
 def cycle(top_n, tf, once):

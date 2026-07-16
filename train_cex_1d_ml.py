@@ -106,7 +106,7 @@ def main():
 
     model = xgb.XGBClassifier(
         n_estimators=N_TREES, max_depth=MAX_DEPTH, learning_rate=0.05,
-        subsample=0.8, colsample_bytree=0.8, objective="multi:softprob",
+        subsample=0.8, colsample_bytree=0.8, objective="multi:softmax",
         num_class=3, n_jobs=N_JOBS, eval_metric="mlogloss",
         class_weight="balanced",
     )

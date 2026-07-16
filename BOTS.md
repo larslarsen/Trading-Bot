@@ -6,18 +6,23 @@ add a row. Naming rule: `<venue>_<strategy>_<tf>` so logs/models are unambiguous
 ## Paper traders (live paper, no real money)
 | Bot file                | Registry name              | Venue | Strategy            | TF   | Model / Rule        | Data source                     | Journal / log file              |
 |-------------------------|----------------------------|-------|---------------------|------|---------------------|---------------------------------|---------------------------------|
-| paper_trader.py         | cex_ml_xgb_5m              | CEX   | ML XGBoost (BTC)    | 5m   | models/latest_xgb.json (via model_server) | btc_5m.csv + macro + multi-asset | trade_journal.json              |
-| paper_trader_multi.py   | cex_multi_screen_1d        | CEX   | Multi-coin screen   | 1d   | rule-based screen   | MEXC 1d klines                  | (cron log) + trade_journal_multi.json |
-| paper_trader_dex.py     | dex_screen_1d              | DEX   | Retail-alt screen   | 1d   | rule-based          | data/<SYM>_1d_max.csv (DEX)     | trade_journal_dex.json          |
-| paper_trader_donchian.py| cex_donchian_1d            | CEX   | Donchian 40         | 1d   | rule (canonical)    | data/<SYM>_1d_max.csv (CEX)     | (cron log)                      |
+| cex_ml_xgb_5m.py        | cex_ml_xgb_5m             | CEX   | ML XGBoost multi-pair (ranked) | 5m | models/<pair>_xgb.json (inline, per-pair registry) | btc_5m.csv + data/<SYM>USDT_5m_max.csv + multi-asset + DEX breadth | logs/cex_ml_xgb_5m.log |
+| cex_multi_screen_1d.py  | cex_multi_screen_1d        | CEX   | Multi-coin screen   | 1d   | rule-based screen   | MEXC 1d klines                  | logs/cex_multi_screen_1d.log + trade_journal_multi.json |
+| dex_screen_1d.py        | dex_screen_1d              | DEX   | Retail-alt screen (rule) | 1d | rule-based        | dex_data/<TOK>_1d_max.csv       | logs/dex_screen_1d.log + trade_journal_dex.json |
+| dex_ml_xgb_1d.py        | dex_ml_xgb_1d              | DEX   | ML XGBoost pooled cross-token (ranked) | 1d | models/dex_xgb.json (ONE pooled model, all tokens) | dex_data/<TOK>_1d_max.csv | logs/dex_ml_xgb_1d.log + trade_journal_dex_ml.json |
+| cex_donchian_1d.py      | cex_donchian_1d            | CEX   | Donchian 40         | 1d   | rule (canonical)    | data/<SYM>_1d_max.csv (CEX)     | (paused)                        |
 
-## Model pipeline (produces the ML model the cex_ml_xgb_5m bot consumes)
+Legacy (superseded, kept for tests/reference, NOT run):
+- cex_ml_xgb_5m_single_legacy.py (was paper_trader.py) -- old single-pair BTC bot, needed a model_server.
+- serve_ml_xgb_legacy.py (was model_server.py) -- old FastAPI signal server; cex_ml_xgb_5m.py now does inline inference.
+
+## Model pipeline (produces the ML models the bots consume)
 | File                | Registry name        | What it does                                              | Output                          |
 |---------------------|----------------------|-----------------------------------------------------------|---------------------------------|
-| model_trainer.py    | train_ml_xgb         | Trains XGBoost 3-class on fetch_data() (+multi-asset)     | models/latest_xgb.json (BTC)    |
+| model_trainer.py    | train_ml_xgb         | Trains XGBoost 3-class per CEX pair on fetch_data() (+multi-asset+DEX breadth) | models/latest_xgb.json (BTC) |
 |                     |                      | `--symbol DOGE` trains DOGE -> models/doge_xgb.json       | models/<sym>_xgb.json           |
+| train_dex_ml.py     | train_dex_ml         | ONE pooled cross-token XGBoost over ALL dex_data tokens (per-token features, chronological split) | models/dex_xgb.json |
 | walk_forward_validate.py | eval_wf_xgb      | OOS walk-forward of the ML approach                       | models/walk_forward_report.json |
-| model_server.py     | serve_ml_xgb         | FastAPI serving latest_xgb.json -> /signal for cex_ml_xgb_5m | http://127.0.0.1:8080         |
 
 ## Data backfill (free sources only: GeckoTerminal/DEX, CDD/Binance/Blockchain.com, BloFin)
 | File                      | Registry name        | What it pulls                                  | Output pattern                  |

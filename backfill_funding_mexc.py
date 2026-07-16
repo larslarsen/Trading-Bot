@@ -54,7 +54,9 @@ def fetch_json(url, timeout=30, tries=4):
 # ---------------- Bybit funding rate history ----------------
 def bybit_funding(symbol, start_ms, end_ms, limit=200, win_ms=None):
     """Walk funding history forward in bounded windows (Bybit requires BOTH
-    startTime and endTime). 8h funding interval. Returns [[ts_ms, rate], ...]."""
+    startTime and endTime). 8h funding interval. Returns [[ts_ms, rate], ...].
+    Errors in a window are skipped (advance) so one bad window can't kill the
+    whole run."""
     if win_ms is None:
         win_ms = 365 * 2 * 86400 * 1000  # 2y windows
     rows = []
@@ -65,12 +67,17 @@ def bybit_funding(symbol, start_ms, end_ms, limit=200, win_ms=None):
              f"&symbol={symbol}&limit={limit}&startTime={cursor}&endTime={win_end}")
         d, err = fetch_json(u)
         if err:
-            return rows, err
+            print(f"  [{symbol} funding] window err: {err}; skipping", flush=True)
+            cursor = win_end + 1
+            time.sleep(0.5)
+            continue
         if d.get("retCode") != 0:
-            return rows, d.get("retMsg")
+            print(f"  [{symbol} funding] api err: {d.get('retMsg')}; skipping", flush=True)
+            cursor = win_end + 1
+            time.sleep(0.5)
+            continue
         lst = d.get("result", {}).get("list", [])
         if not lst:
-            # no data in this window; advance
             cursor = win_end + 1
             time.sleep(0.2)
             continue
@@ -120,7 +127,8 @@ def run_funding(symbols):
 # ---------------- MEXC 5m klines ----------------
 def mexc_klines(symbol, start_ms, end_ms=None, limit=1000, win_ms=None):
     """MEXC requires BOTH startTime and endTime (startTime alone is ignored and
-    returns recent bars). Walk forward in bounded windows (default 90d)."""
+    returns recent bars). Walk forward in bounded windows (default 90d). Errors
+    in a window are skipped (advance)."""
     if end_ms is None:
         end_ms = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
     if win_ms is None:
@@ -133,9 +141,15 @@ def mexc_klines(symbol, start_ms, end_ms=None, limit=1000, win_ms=None):
              f"&limit={limit}&startTime={cursor}&endTime={win_end}")
         out, err = fetch_json(u)
         if err:
-            return rows, err
-        if not out or not isinstance(out, list):
-            return rows, "bad response"
+            print(f"  [{symbol} mexc] window err: {err}; skipping", flush=True)
+            cursor = win_end + 1
+            time.sleep(0.5)
+            continue
+        if not isinstance(out, list):
+            print(f"  [{symbol} mexc] unexpected response; skipping", flush=True)
+            cursor = win_end + 1
+            time.sleep(0.5)
+            continue
         if not out:
             cursor = win_end + 1
             time.sleep(0.2)

@@ -34,7 +34,7 @@ DEX.mkdir(exist_ok=True)
 API = "https://api.geckoterminal.com/api/v2"
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 DEEP_ENOUGH = pd.Timestamp("2023-01-01")
-DEFAULT_MEM_LIMIT_MB = 1536
+DEFAULT_MEM_LIMIT_MB = 3072
 
 
 def _get(url, tries=5):

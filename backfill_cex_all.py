@@ -91,12 +91,22 @@ def pull(sym, tf, start_ms):
     return out
 
 
+def parse_ts(ts_series):
+    """Robust timestamp parse: handles mixed/legacy formats (incl. early Binance
+    fractional-second rows like '2018-02-09 09:58:15.787000+00:00') and floors to
+    the 5m grid so non-aligned bars dedupe cleanly."""
+    s = pd.to_datetime(ts_series, utc=True, format="mixed")
+    # floor to 5m so fractional/odd bars snap to the candle grid
+    s = s.dt.floor("5min")
+    return s
+
+
 def existing_last_ms(path):
     if not path.exists():
         return None
     try:
         d = pd.read_csv(path, usecols=["ts"])
-        return int(pd.to_datetime(d["ts"]).max().timestamp() * 1000)
+        return int(parse_ts(d["ts"]).max().timestamp() * 1000)
     except Exception:
         return None
 
@@ -255,7 +265,7 @@ def main():
             df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
             if path.exists():
                 old = pd.read_csv(path)
-                old["ts"] = pd.to_datetime(old["ts"], utc=True)
+                old["ts"] = parse_ts(old["ts"])
                 df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
             df.to_csv(path, index=False)
             total += 1

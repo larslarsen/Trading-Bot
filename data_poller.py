@@ -102,7 +102,7 @@ def cex_worker(s, once):
                     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
                     if path.exists():
                         old = pd.read_csv(path)
-                        old["ts"] = pd.to_datetime(old["ts"], utc=True)
+                        old["ts"] = cex.parse_ts(old["ts"])
                         df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
                     df.to_csv(path, index=False)
                     derive.derive_sym(sym, ["1h", "4h", "1d"])

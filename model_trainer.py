@@ -98,7 +98,9 @@ def train_and_save(symbol=None) -> bool | None:
     df = add_macro_signals(df, macro)
     if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
         print(f'  Adding multi-asset features from {MULTI_ASSET_FILE}...')
-        df = add_multi_asset_features(df, MULTI_ASSET_FILE)
+        df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
+    else:
+        multi_cols = []
     from micro_features import load_micro
     micro = load_micro(df.index)
     if not micro.empty and micro.notna().any().any():
@@ -127,7 +129,7 @@ def train_and_save(symbol=None) -> bool | None:
     df = df.sort_index()
     df = detect_regime(df)
 
-    features = [f for f in ALL_FEATURES if f in df.columns] + ["regime_high_vol", "regime_trending"]
+    features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + ["regime_high_vol", "regime_trending"]
     X = df[features].values
     y = df["label"].values
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

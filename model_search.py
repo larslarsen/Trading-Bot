@@ -47,13 +47,15 @@ def build_frame():
     macro = load_macro_data(df.index)
     df = add_macro_signals(df, macro)
     if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
-        df = add_multi_asset_features(df, MULTI_ASSET_FILE)
+        df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
+    else:
+        multi_cols = []
     df = derive_features(df)
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df = df.loc[:, ~df.columns.duplicated()]
     df = df.sort_index()
     df = detect_regime(df)
-    return df
+    return df, multi_cols
 
 
 def make_model(name, params, n_classes=3):
@@ -102,11 +104,11 @@ def eval_case(model_fn, X_tr, y_tr, X_val, y_val, X_te, y_te, sample_weight=None
 def main():
     t0 = time.time()
     print('[MS] Building frame...')
-    df = build_frame()
+    df, multi_cols = build_frame()
     df['label'] = triple_barrier_labels(df)['label']
     df = df[df['label'].notna()]
 
-    feature_cols = [f for f in ALL_FEATURES if f in df.columns]
+    feature_cols = [f for f in ALL_FEATURES if f in df.columns] + multi_cols
     for col in ['regime_high_vol', 'regime_trending']:
         if col not in df.columns:
             df[col] = 0

@@ -120,7 +120,7 @@ def main():
     p = 1.0
     if N > 0:
         import math
-        k = min(wins, losses)
+        k = max(wins, losses)
         pv = 0.0
         for i in range(k, N + 1):
             pv += math.comb(N, i) * (0.5 ** N)

@@ -209,7 +209,7 @@ def main():
     if wins + losses > 0:
         import math
         N = wins + losses
-        k = min(wins, losses)  # extreme tail count
+        k = max(wins, losses)  # extreme tail count
         p_val = 0.0
         for i in range(k, N + 1):
             p_val += math.comb(N, i) * (0.5 ** N)

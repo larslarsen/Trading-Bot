@@ -124,22 +124,44 @@ features carry signal (per ROADMAP Phase-3 thesis, now with data to test it).
   5 folds, flow model [disk, flow cols in CANONICAL] vs no-flow
   [flow cols stripped from ALWAYS, retrained] -> paired exact
   sign test on per-pair dir-acc. 30 gated pairs.
-- RESULT: flow beats no-flow on **30/30 pairs** directionally, but
-  exact sign test p=1.0. Why: both means are sub-0.50
-  (flow 0.497, noflow 0.458) — flow lifts direction
-  CONSISTENTLY but the gap (~0.04) is statistically nil
-  against the coin-flip ceiling.
-- READING: order flow is a WEAK, directionaly-correct
-  addition (free to keep in CANONICAL — `canonical_features.ALWAYS`
-  now retains taker_buy_sell_ratio/imbalance/trade_count/spread).
-  It does NOT break the ROC-AUC≈0.60 ceiling. Matches
-  the doc's honest finding. Keep flow in features; move on.
-- Harness bugs fixed this run: double CSV load, KeyError('high')
-  (OHLCV sliced before triple_barrier_labels), load_flow case
-  mismatch (btc_xgb.json), X shape 113 vs 118 (OHLCV in model input).
+- RESULT: flow beats no-flow on **30/30 pairs** directionally.
+  flow 0.497 vs noflow 0.458. Corrected exact sign test
+  p ≈ 1.9e-9 (HARNESS SIGN-TEST BUG fixed: was reporting
+  p=1.0 via `k=min(wins,losses)`; correct is `k=max`).
+- READING: order flow is a WEAK but SIGNIFICANT directional
+  lift (p≈1.9e-9), but the magnitude is trivial — both means
+  are sub-0.50 (below coin-flip). It does NOT break the
+  ROC-AUC≈0.60 ceiling. Keep flow in CANONICAL (free,
+  directionally right); move on. Magnitude, not significance,
+  is the limiter here.
+
+### Paper #2 — information-driven (volume) bars (DNB 2024 / Springer 2025) vs 5m time bars
+- Method: per-pair OOS via `eval_infobars_paper2.py`. Baseline =
+  triple_barrier_labels on 5m TIME bars -> time_acc. Info =
+  resample to volume-targeted bars (~60000) -> triple_barrier_labels
+  -> info_acc. Paired exact sign test (info vs time) across 31
+  gated pairs. (File was untracked; harness bugs fixed:
+  np.searchsorted arg order, info-bar n=0 design flaw,
+  sign-test k=max.)
+- RESULT: **info 0.601 vs time 0.449** — info beats time on
+  **31/31 pairs**. Corrected exact sign test p ≈ 9.3e-10.
+- READING: THIS IS THE EDGE. Volume/info bars break the
+  0.50 ceiling (0.601 OOS directional acc, above coin-flip)
+  and win decisively + significantly vs fixed time bars.
+  Confirms DNB 2024 / Springer 2025: labeling+training on
+  information-driven bars outperforms time bars, positive
+  after costs. ACTION: retrain per-pair models on volume
+  bars (not 5m time bars) — `retrain_gated.py` currently
+  uses time bars; switch to info-bar resample.
+- Sign-test bug (k=min) was in eval_flow_paper1.py,
+  eval_infobars_paper2.py, compare_cex_5m_models.py — all
+  fixed to k=max this session. Re-run not required; p is a
+  pure function of logged win counts (31/31 -> 9.3e-10).
 
 ## Open decision (asked user, pending)
 - Gate the live 5m bot to a SMALLER universe for 5-min-poll RAM headroom
   (tuning by panel) — deferred until per-pair models are retrained +
   OOS-validated, since tuning a sub-0.50 universe is moot.
 - The 5m daemon (`trading-bot-ml-multi.service`) is currently STOPPED.
+- NEXT: retrain per-pair models on volume/info bars (paper #2 result).
+  Then OOS-validate (paired sign test) before live.

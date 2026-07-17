@@ -25,6 +25,7 @@ import pandas as pd
 
 import backfill_cex_all as cex
 import derive_cex_tf as derive
+from mem_guard import guard as _mem_guard
 
 REPO = Path(__file__).parent
 START_MS = 1262304000000  # 2010-01-01; CDN 404s before listing, skipped via probe
@@ -80,8 +81,9 @@ def stream_fresh(sym, tf, path):
     return total
 
 
-def do_symbol(sym, min_bars):
+def do_symbol(sym, min_bars, mem_limit=1536):
     path = cex_5m_path(sym)
+    _mem_guard(mem_limit)  # trip early if this process is already near the cap
     last = cex.existing_last_ms(path)
     now_ms = int(time.time() * 1000)
     if last is not None and last >= cex.floor_ts(now_ms, "5m") - 10 * 60 * 1000:
@@ -128,13 +130,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--min-bars", type=int, default=1000)
+    ap.add_argument("--mem-limit-mb", type=int, default=1536,
+                    help="hard RSS cap; abort the run if exceeded (re-run is safe)")
     args = ap.parse_args()
     syms = cex.get_syms()
     print(f"bulk backfilling {len(syms)} symbols via CDN, {args.workers} workers", flush=True)
     done = ok = skip = nodata = err = 0
     t0 = time.time()
     with cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(do_symbol, s, args.min_bars): s for s in syms}
+        futs = {ex.submit(do_symbol, s, args.min_bars, args.mem_limit_mb): s for s in syms}
         for fut in cf.as_completed(futs):
             sym, status, n = fut.result()
             done += 1

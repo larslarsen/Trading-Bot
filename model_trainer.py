@@ -81,6 +81,56 @@ def metrics_out_path(sym_tag: str) -> Path:
     return MODEL_DIR / f"{sym_tag.lower()}_metrics.json"
 
 
+def build_symbol_features(symbol):
+    """Feature assembly for one CEX 5m pair, shared by per-pair + pooled
+    trainers AND the serving bot. Returns (df_with_features, feature_list).
+    Mirror of the inlined build inside train_and_save -- keep in sync."""
+    sym = symbol or "BTC"
+    df = fetch_data(sym)
+    # Harden against a transient poller in-place rewrite producing a
+    # duplicated timestamp index: a non-unique index makes downstream
+    # df.join() explode into a cartesian product (100s of GiB). Keep last.
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep="last")]
+    tf = add_resampled_features(df)
+    df = df.join(tf, how="left")
+    macro = load_macro_data(df.index)
+    df = add_macro_signals(df, macro)
+    multi_cols = []
+    if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
+        df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
+    from micro_features import load_micro, load_funding
+    micro = load_micro(df.index)
+    if not micro.empty and micro.notna().any().any():
+        df = df.join(micro, how="left")
+    if "funding_rate" in df.columns:
+        df = df.drop(columns=["funding_rate"])
+    fund = load_funding(sym, df.index)
+    if not fund.empty and fund.notna().any().any():
+        df = df.join(fund, how="left")
+    from onchain_features import load_onchain
+    oc = load_onchain(df.index, sym)
+    if not oc.empty and oc.notna().any().any():
+        df = df.join(oc, how="left")
+    dex_cols = []
+    try:
+        from dex_features import add_dex_features
+        df, dex_cols = add_dex_features(df)
+    except Exception:
+        dex_cols = []
+    df = derive_features(df)
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.sort_index()
+    df = detect_regime(df)
+    # CANONICAL: present exactly the frozen, shared 98-feature block (symbol
+    # agnostic base + locked BTC/ETH/DOGE cross-asset). Zero-fills any optional
+    # column a pair lacks so every pair trains/serves on IDENTICAL dimensions.
+    from canonical_features import resolve
+    df, features = resolve(df)
+    return df, features
+
+
 def train_and_save(symbol=None) -> bool | None:
     """Train on latest expanding window, save model JSON.
     `symbol` (default BTC) selects the 5m history file; non-BTC models are
@@ -90,57 +140,11 @@ def train_and_save(symbol=None) -> bool | None:
     sym_tag = _norm_sym(symbol or "BTC")
     print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Train starting for {sym_tag}...")
 
-    # Load data
-    df = fetch_data(symbol)
-    tf = add_resampled_features(df)
-    df = df.join(tf, how="left")
-    macro = load_macro_data(df.index)
-    df = add_macro_signals(df, macro)
-    if USE_MULTI_ASSET and Path(MULTI_ASSET_FILE).exists():
-        print(f'  Adding multi-asset features from {MULTI_ASSET_FILE}...')
-        df, multi_cols = add_multi_asset_features(df, MULTI_ASSET_FILE)
-    else:
-        multi_cols = []
-    from micro_features import load_micro, load_funding
-    micro = load_micro(df.index)
-    if not micro.empty and micro.notna().any().any():
-        df = df.join(micro, how='left')
-        print(f'  Loaded {len(micro.columns)} micro columns')
-    else:
-        print('  No usable micro data, continuing')
-    # NEW: deep-history Bybit funding rate (high-value signal) -- prefer over
-    # the legacy micro funding feed (which is a thin live feed). Drop any
-    # legacy funding_rate col first to avoid join collision.
-    if "funding_rate" in df.columns:
-        df = df.drop(columns=["funding_rate"])
-    fund = load_funding(symbol or "BTC", df.index)
-    if not fund.empty and fund.notna().any().any():
-        df = df.join(fund, how='left')
-        print(f'  Loaded funding_rate ({len(fund)} rows aligned)')
-    else:
-        print('  No funding data for symbol, continuing')
-    # NEW: on-chain network features (BTC/ETH/base/etc)
-    from onchain_features import load_onchain
-    oc = load_onchain(df.index, symbol or "BTC")
-    if not oc.empty and oc.notna().any().any():
-        df = df.join(oc, how='left')
-        print(f'  Loaded {len(oc.columns)} on-chain columns')
-    else:
-        print('  No on-chain data for symbol, continuing')
-    # DEX-wide cross-venue microstructure breadth (DexScreener poller output)
-    try:
-        from dex_features import add_dex_features
-        df, dex_cols = add_dex_features(df)
-        if dex_cols:
-            print(f'  Added {len(dex_cols)} DEX cross-venue features')
-        else:
-            dex_cols = []
-    except Exception as e:
-        print(f'  DEX features unavailable: {e}')
-        dex_cols = []
-    df = derive_features(df)
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
-
+    # Load data + features (shared with pooled trainer + serving bot)
+    df, features = build_symbol_features(symbol)
+    if df.empty:
+        print(f"  No usable features for {sym_tag}, skipping")
+        return None
     df = triple_barrier_labels(df)
 
     # Use feature subset drop to avoid blanket dropna wiping valid rows when
@@ -159,12 +163,7 @@ def train_and_save(symbol=None) -> bool | None:
     df = df.sort_index()
     df = detect_regime(df)
 
-    features = [f for f in ALL_FEATURES if f in df.columns] + multi_cols + dex_cols + ["regime_high_vol", "regime_trending"]
-    # NEW high-value exogenous features (funding + on-chain) if present
-    extra = ["funding_rate"] + [c for c in df.columns if c.startswith("oc_")]
-    for cand in extra:
-        if cand in df.columns:
-            features.append(cand)
+    features = [f for f in features if f in df.columns]  # keep only those present post-label
     X = df[features].values
     y = df["label"].values
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

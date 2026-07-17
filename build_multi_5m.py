@@ -18,26 +18,33 @@ from pathlib import Path
 
 REPO = Path(__file__).parent
 CEX = REPO / "data" / "cex"
+DATADIR = REPO / "data"
 OUT = REPO / "multi_5m.csv"
 STABLES = {"USDCUSDT", "FDUSDUSDT", "RLUSDUSDT", "USD1USDT", "EURUSDT",
            "UUSDT", "TUSDUSDT", "DAIUSDT", "BUSDUSDT", "USDPUSDT", "AEURUSDT"}
 
 
 def all_syms():
-    syms = ["BTCUSDT"]  # deepest dedicated file
-    for p in CEX.glob("*_5m.csv"):
-        s = p.stem.replace("_5m", "")
+    # BTC is seeded from the deepest dedicated root file; every other USDT pair
+    # lives at data/<SYM>USDT_5m_max.csv (the canonical path the poller +
+    # pipeline.fetch_data() use). Scan that dir, not the legacy data/cex tree
+    # (which no longer holds the screener symbols -> multi_5m.csv ended with
+    # only BTCUSDT and every model ranked FLAT).
+    syms = ["BTCUSDT"]
+    for p in DATADIR.glob("*_5m_max.csv"):
+        s = p.stem.replace("_5m_max", "").replace("USDT", "") + "USDT"
         if s not in STABLES:
             syms.append(s)
     return syms
 
 
 def load_5m(sym):
-    # BTC has the deepest dedicated file; others from the CEX sweep tree.
+    # BTC has the deepest dedicated file; others from the canonical data/ path.
     if sym == "BTCUSDT":
         p = REPO / "btc_5m.csv"
     else:
-        p = CEX / f"{sym}_5m.csv"
+        stem = sym.replace("USDT", "")
+        p = DATADIR / f"{stem}USDT_5m_max.csv"
     if not p.exists():
         return None
     d = pd.read_csv(p, parse_dates=["ts"])
@@ -65,7 +72,7 @@ def main():
         return
     merged = pd.concat(frames, ignore_index=True)
     merged = merged.drop_duplicates(subset=["ts", "symbol"]).sort_values(["symbol", "ts"]).reset_index(drop=True)
-    merged = merged.dropna(subset=["open", "high", "low", "close"])
+    merged = merged.dropna(subset=["ts", "open", "high", "low", "close"])
     cols = ["ts", "symbol", "open", "high", "low", "close", "volume"]
     merged = merged[cols]
     merged.to_csv(OUT, index=False)

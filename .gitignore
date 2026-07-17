@@ -110,3 +110,4 @@ scripts/
 
 # coverage artifact
 .coverage
+.pooled_tmp/

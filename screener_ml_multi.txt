@@ -1,9 +1,40 @@
-# ML multi-pair screener — which models the bot trades right now.
+# ML multi-pair screener — which per-pair models the bot trades.
 # One pair per line. '#' = comment. Edit to reshuffle the universe without
-# retraining. Models are auto-discovered from models/<SYM>_xgb.json; pairs
+# retraining. Models are auto-discovered from models/<sym>_xgb.json; pairs
 # listed here with no model on disk are skipped at load.
-# Blank/missing file => trade ALL discovered models.
+# This is the literature quality-gated universe (Bartolucci two-feature gate:
+# security/maturity + liquidity), the same subset the pooled model trained on.
+# Expanded from the early 3-pair smoke test to the full gated set.
 
+AAVEUSDT
+ADAUSDT
+APTUSDT
+ARBUSDT
+AVAXUSDT
+BCHUSDT
+BNBUSDT
 BTCUSDT
-ETHUSDT
 DOGEUSDT
+DOTUSDT
+ENAUSDT
+ETHFIUSDT
+ETHUSDT
+EURUSDT
+FILUSDT
+ICPUSDT
+LINKUSDT
+LTCUSDT
+NEARUSDT
+ORDIUSDT
+PEPEUSDT
+SEIUSDT
+SOLUSDT
+SUIUSDT
+TAOUSDT
+TIAUSDT
+TRXUSDT
+UNIUSDT
+WLDUSDT
+XLMUSDT
+XRPUSDT
+ZECUSDT

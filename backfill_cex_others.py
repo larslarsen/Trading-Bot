@@ -84,6 +84,17 @@ def okx_klines(symbol, after_ms, tgt, limit=100):
             break
         cursor = oldest
         time.sleep(0.5)
+    # Finalize: sort ascending + dedupe (append mode leaves the file unsorted,
+    # which makes downstream readers see a stale last bar).
+    if tgt.exists():
+        try:
+            d = pd.read_csv(tgt)
+            if "ts" in d.columns and len(d):
+                d["ts"] = pd.to_datetime(d["ts"], utc=True)
+                d = d.sort_values("ts").drop_duplicates("ts")
+                d.to_csv(tgt, index=False)
+        except Exception:
+            pass
     return True, None
 
 
@@ -127,6 +138,18 @@ def bybit_klines(symbol, start_ms, tgt, limit=1000):
             break
         end = oldest - 1
         time.sleep(0.3)
+    # Finalize: the API returns pages newest-first and we append, so the file
+    # is left unsorted. Sort ascending + dedupe so downstream readers (the bot,
+    # trainer) see the correct last bar instead of a stale appended row.
+    if tgt.exists():
+        try:
+            d = pd.read_csv(tgt)
+            if "ts" in d.columns and len(d):
+                d["ts"] = pd.to_datetime(d["ts"], utc=True)
+                d = d.sort_values("ts").drop_duplicates("ts")
+                d.to_csv(tgt, index=False)
+        except Exception:
+            pass
     return True, None
 
 

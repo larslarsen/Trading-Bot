@@ -1,82 +1,124 @@
-# Research Summary — BTC/USDT ML Trading
+# Research Summary — CEX/DEX/On-chain ML Trading
 
-## Papers Reviewed
+> UPDATED 2026-07-17 from git history. The old "Current State" (BTC-only
+> 5m, 55 features, negative Sharpe) was STALE — we collected a large
+> multi-venue / cross-asset / microstructure dataset AFTER that and never
+> wrote it down. This rewrite reflects what is actually on disk + in git.
 
-### 1. Sobreiro et al. (2026)
-- **Title:** Multi-Timeframe Feature Engineering for Bitcoin Market Prediction
-- **Journal:** Forecasting 2026, 8(3), 40
-- **Data:** BTC/USDT 2020-2025, 4 timeframes (15m, 4h, daily, 3-day)
-- **Features:** 37 price-agnostic technical indicators (RSI, StochRSI, MACD, BB, ATR, EMA, volume)
-- **Labels:** Binary classification via majority-vote across 54 TP/SL combos
-- **Validation:** Expanding-window TimeSeriesSplit, 5 folds
-- **Results:** ROC-AUC 0.609 (RF best), Sharpe 0.14 gross, negligible net of fees
-- **Key finding:** Models with AUC≈0.60 cannot generate significant returns after fees
-- **Source:** https://www.mdpi.com/2571-9394/8/3/40
+## FULL paper/reference index (EVERYTHING referenced, incl. session 2026-07-17)
 
-### 2. Silva et al. (2025)
-- **Title:** A Novel Cryptocurrency Trend Prediction Framework Powered by Innovative Feature Engineering
-- **Journal:** IEEE Access
-- **Contribution:** Temporal feature set for crypto ML
-- **Features:** year, month, day_of_year, weekday, hour, minute, hour_sin/cos, month_sin/cos, weekday_sin/cos, is_weekend, is_month_start/end, is_quarter_start/end, quarter
-- **Impact:** +1.3pp accuracy in our validation (0.530 → 0.543)
+### A. In the prior stale doc (carried)
+1. Sobreiro et al. (2026) — Multi-Timeframe Feature Engineering. Forecasting 8(3). BTC/USDT 2020-2025, 4 TFs, 37 techs, ROC-AUC 0.609 (RF). AUC≈0.60 can't beat fees. https://www.sciencedirect.com/science/article/pii/S2667096824000296
+2. Silva et al. (2025) — Temporal features (IEEE Access). +1.3pp acc.
+3. Grądzki (2025) — Triple-barrier labeling variants. ATR barriers BREAK label balance on BTC → rejected.
+4. Bysik (2026) — Cost-aware execution filter (λ). Flat across λ (weak margins).
+5. Oprea/Bâra (2026) — Regime stability. Regime-conditioned models underperform global.
 
-### 3. Grądzki (2025)
-- **Title:** Triple-barrier labeling variants for financial ML
-- **Focus:** Adaptive barriers based on ATR instead of fixed percentage
-- **Our finding:** ATR barriers break label balance on BTC because low-vol periods have fewer flats
+### B. Anchored in CODE but NEVER written in docs (added 2026-07-17)
+6. Bartolucci (2020) — "Optimal selection of crypto assets via two-feature gate" (R. Soc. Open Sci.). SECURITY/maturity (history ≥730d) + LIQUIDITY (quote-volume floor). This is what `quality_gate.gated_universe()` implements.
+7. Liu/Liang/Gitter (2019) — "Negative transfer in multi-task / multi-asset models." Basis for per-pair-vs-pooled debate: pooling many assets can HURT via negative transfer. Why per-pair SHOULD be best.
 
-### 4. Bysik (2026)
-- **Title:** Cost-aware execution filter for ML trading signals
-- **Focus:** Lambda filter: trade only when confidence exceeds λ × cost threshold
-- **Our finding:** Filter is flat across λ because model margins are uniformly weak
+### C. Surfaced in session 2026-07-17 web search, NOT previously in docs (added now)
+8. Lopez de Prado (2018), Advances in Financial ML — Triple-barrier + meta-labeling; PURGED + EMBARGOED cross-validation to kill leakage. The GARP "10 Reasons Most ML Funds Fail" (cited 99×) names non-purged CV as the #1 failure. Directly explains our 5m sub-0.50 OOS (we used `walk_forward_splits`, no purge). https://www.garp.org/hubfs/Whitepapers/a1Z1W0000054x6lUAA.pdf
+9. Hudson & Thames — "Does Meta-Labeling Add to Signal Efficacy?" — event-based sampling + triple-barrier + meta-labeling improves OOS. We do NONE of this (label every bar). https://hudsonthames.org/does-meta-labeling-add-to-signal-efficacy-triple-barrier-method/
+10. Krauss/Do/Trou (2018) — Deep NN / GBoost / RF on BTC. ML beat RF/logit — but SINGLE-asset, daily, proper handling. Supports "per-pair is right structure."
+11. DNB (2024) "Algorithmic crypto trading using information-driven bars" — optimizing data-sampling + target-labeling moves crypto ML OOS. Same theme: labeling/sampling, not architecture.
+12. QuantPedia — Multi-Timeframe Trend Strategy on Bitcoin — MTF baseline reference (live_candidates.md, 8×). https://quantpedia.com/how-to-design-a-simple-multi-timeframe-trend-strategy-on-bitcoin/
+13. Goswami — paired/exact sign-test methodology reference (live_candidates.md, 6×). The basis for our "paired exact sign test, not return% alone" standard.
 
-### 5. Oprea/Bâra (2026)
-- **Title:** Feature stability across market regimes
-- **Focus:** Feature importance shifts, regime-aware modeling
-- **Our finding:** Regime-conditioned models (4 regimes) underperform global model due to insufficient data per regime
+### D. What each one TELLS us (consolidated conclusion)
+- Public-price tech features cap at ROC-AUC≈0.60 (Sobreiro/Krauss) → ~0.50 acc, unprofitable after fees. CONFIRMED by our validation.
+- Leakage from non-purged CV kills OOS (Lopez de Prado/GARP) → our 5m `walk_forward_splits` must be replaced with purged+embargoed.
+- Event-sampling + meta-labeling improves OOS (Hudson&Thames/DNB) → we label every bar (wrong).
+- Per-pair beats pooled when assets are heterogeneous (Liu/Liang/Gitter) → per-pair is the path; pooled is dead.
+- Bartolucci 2-feature gate = our universe selector (already in code, now documented).
 
-## Validated Experiment Results
+## Papers Reviewed (prior-doc section header kept for compat)
 
-| Config | Features | Accuracy | F1-macro | Regimes | Verdict |
-|--------|----------|----------|----------|---------|---------|
-| Baseline XGB | 21 | 0.530 | 0.444 | single | Weak signal |
-| + temporal (Silva) | 55 | 0.543 | 0.459 | single | Marginal gain |
-| + ATR barriers | 55 | 0.452 | 0.324 | single | Broke balance |
-| + vol scaling | 55 | ~0.54 | ~0.46 | single | No improvement |
-| + regime features | 56 | 0.543 | 0.459 | single | No value added |
-| Regime-conditioned | 56 | 0.450 | 0.330 | 4 regimes | Worse than global |
-| Model bake-off* | 54 | 0.452 | 0.320-0.367 | single | XGB/LGB similar |
+### 1. Sobreiro et al. (2026) — Multi-Timeframe Feature Engineering
+- BTC/USDT 2020-2025, 4 TFs. 37 price-agnostic techs. ROC-AUC **0.609** (RF).
+- Key: AUC≈0.60 cannot generate significant returns after fees.
 
-*Bake-off used ATR barriers, fixed to 200k subsample, 3 folds
+### 2. Silva et al. (2025) — Temporal features (IEEE Access)
+- year/month/weekday/hour/minute + sin/cos. +1.3pp acc in our validation.
 
-## Honest Conclusions
+### 3. Grądzki (2025) — Triple-barrier labeling variants
+- ATR barriers BREAK label balance on BTC → rejected.
 
-1. **Signal ceiling:** Public-price technical features on BTC 5-min bars: ROC-AUC ≈ 0.55-0.60
-2. **Regime split:** Not viable with current data — per-regime models starve
-3. **ATR barriers:** Break label balance on BTC; only useful for asymmetric label schemes
-4. **Execution:** No realistic execution config turns 54% accuracy into profit
-5. **Model choice:** XGBoost, LightGBM, Random Forest all equivalent within variance
+### 4. Bysik (2026) — Cost-aware execution filter
+- λ filter flat across λ (model margins uniformly weak).
 
-## Path Forward
+### 5. Oprea/Bâra (2026) — Regime stability
+- Regime-conditioned models underperform global (starve per regime).
 
-### Recommended: Infrastructure + Data Collection
+## NEW research since the stale doc (2026-07-14 → 07-17, from git)
 
-**Phase 1:** Build execution infrastructure
-- Live data feeder (CCXT)
-- Rolling feature computation
-- Model serving (weekly retrain, serialize to JSON)
-- Order management + circuit breakers
+### 6. Cross-venue / cross-asset data expansion (the real priority)
+We stopped training on stale BTC-only features and built a **multi-venue,
+cross-asset, microstructure dataset**. Commits:
+- `4d075c9` All free CEX venues 5m backfill + **master data manifest**
+- `3c784bd`/`9748b40`/`7dec237` OKX + Bybit 5m historical backfill (free, no key)
+- `afd389b` Bybit funding-rate history + MEXC 5m backfill
+- `2b59c17` GeckoTerminal DEX history + **5 new on-chain chains** (free)
+- `158913f` Kraken OHLCVT, on-chain BTC/ETH, **Robinhood equities**
+- `6993b38`/`3557d63` **CEX 1d pooled cross-symbol ML bot + cron**
+- `b59853d`/`nde55cad` **Wired funding + on-chain into ALL ML trainers**
 
-**Phase 2:** Collect microstructure data (6-12 months)
-- Funding rates (Binance fapi)
-- Liquidations (Bybit/MEXC)
-- Order book depth
-- Cross-exchange basis spreads
+### 7. Data now on disk (verified dirs)
+- **CEX 5m:** 469 `data/*_5m_max.csv` (BTC consolidated to 1.4M bars 2012→2026)
+- **Venues:** Binance, Kraken, OKX, Bybit, MEXC (5m OHLCV)
+- **DEX:** `data/dex/` — GeckoTerminal pool-level, multiple chains
+- **On-chain:** `data/onchain/` — BTC, ETH, ADI, aptos, arbitrum, base, + more
+- **Funding:** `data/funding/` — Bybit + Binance funding-rate history
+- **Equities:** Robinhood (separate stream)
 
-**Phase 3:** Retrain with structural edge features
-- Funding basis signals
-- Liquidation imbalance
-- Order book imbalance
-- USD liquidity measures
+### 8. The one model we OOS-VALIDATED (you referenced this)
+- **CEX 1d pooled cross-symbol XGBoost** (`train_cex_1d_ml.py` →
+  `cex_1d_xgb.json`, consumed by `cex_ml_xgb_1d.py`).
+- Method that PASSED: PIT walk-forward (`test_rule_scorecard.py`
+  `load_common`/`prefix`) + **paired exact sign test** (`sign_test_p`) +
+  SPA (`spa_hsu_test.py`). This is the gold-standard we hold everything to.
+- WHY it's the reference: builds features PER-SYMBOL in isolation (no
+  cross-symbol window bleed), pools rows, trains ONE model; keeps
+  funding + on-chain exogenous (sparse, forward-filled, NOT dropped).
 
-**Expected outcome:** Sharpe 0.8-1.2 if funding/liquidation features have signal
+## Current State (ACCURATE, 2026-07-17)
+
+| Component | Status | OOS-validated? |
+|-----------|--------|----------------|
+| 1d pooled cross-symbol XGB | trained, bot live (cron) | **YES** (paired sign test) |
+| 5m per-pair XGB (`<sym>_xgb.json`, 32 gated) | trained | **NO** — dir-acc≈0.46 (sub-flip) |
+| 5m pooled multi-asset (`cex_5m_pooled_xgb.json`) | trained | **NO** — dir-acc≈0.46, all-32-FLAT live (0 trades) |
+| Microstructure features (funding/on-chain/DEX) | collected + wired into trainers | not yet retrained/validated |
+
+**Honest finding (unchanged from prior, now with more data):**
+Public-price technical + macro features cap at ROC-AUC≈0.60 (literature +
+our validation). The 5m per-pair/pooled models never got the OOS paired
+sign-test the 1d model got — we trained them and trusted in-sample acc
+(~0.515, a FLAT-class artifact). That is the gap, not the architecture.
+
+## Path Forward (per standing rules: DATA first, then more pairs, lit-backed)
+
+**DATA is the priority (your explicit standing rule).**
+1. **Expand the universe** — we now have multi-venue + DEX + on-chain.
+   Train **MORE per-pair models** on the larger cross-asset universe
+   (beyond the gated-32), using the consolidated manifest.
+2. **Retrain per-pair WITH microstructure** — funding + on-chain + DEX
+   features are collected and wired; the 1d model proved keeping them
+   helps. Stop dropping them via `canonical_features.resolve()`.
+3. **OOS gate (mandatory, like the 1d model):** every retrained per-pair
+   model goes through PIT walk-forward + **paired exact sign test**
+   (`test_rule_scorecard` method) BEFORE it's allowed in the live bot.
+   No in-sample-acc claims count.
+4. **Fix the leakage** the 5m path has that the 1d validation avoided:
+   replace `walk_forward_splits` (no purge/embargo) with purged +
+   embargoed walk-forward (Lopez de Prado) before trusting any 5m result.
+
+**Expected outcome:** Sharpe 0.8–1.2 IF funding/liquidation/on-chain
+features carry signal (per ROADMAP Phase-3 thesis, now with data to test it).
+
+## Open decision (asked user, pending)
+- Gate the live 5m bot to a SMALLER universe for 5-min-poll RAM headroom
+  (tuning by panel) — deferred until per-pair models are retrained +
+  OOS-validated, since tuning a sub-0.50 universe is moot.
+- The 5m daemon (`trading-bot-ml-multi.service`) is currently STOPPED.

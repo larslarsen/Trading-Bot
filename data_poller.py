@@ -74,7 +74,13 @@ def cex_5m_path(sym):
 
 
 def cex_worker(s, once):
-    syms = cex.get_syms()
+    # backfill_cex_all exposes SYMS (csv string), not get_syms(); its other
+    # pull_* helpers don't exist, so top up the canonical 5m file per symbol
+    # using the working bybit/okx/mexc kline functions (resumable: they only
+    # append bars newer than what tgt already holds).
+    import backfill_cex_others as bco
+    import backfill_funding_mexc as bfm
+    syms = [x.strip() for x in __import__("backfill_cex_all").SYMS.split(",") if x.strip()]
     n = len(syms)
     while True:
         cursor = int(s.get("cex_cursor", 0)) % n
@@ -82,31 +88,20 @@ def cex_worker(s, once):
         for i in range(cursor, end):
             sym = syms[i]
             path = cex_5m_path(sym)
-            last = cex.existing_last_ms(path)
-            now_ms = int(time.time() * 1000)
-            if last is not None and last >= cex.floor_ts(now_ms, "5m"):
-                continue  # already complete
-            start = 1262304000000 if last is None else cex.floor_ts(last + 1, "5m")
+            last = None
+            if path.exists():
+                d = pd.read_csv(path)
+                if len(d) and "ts" in d.columns:
+                    last = int(pd.to_datetime(d["ts"], utc=True).max().timestamp() * 1000) + 1
+            start = last or int(pd.Timestamp("2021-01-01", tz="UTC").timestamp() * 1000)
             try:
-                # Bulk CDN first (static ZIPs, no rate limit) for deep history,
-                # then REST pull() tops up the last live bars the ZIPs lack.
-                rows = cex.pull_bulk(sym, "5m", start)
-                bulk_last = rows[-1][0] if rows else (last if last else start)
-                live = cex.pull(sym, "5m", cex.floor_ts(bulk_last + 1, "5m"))
-                if live:
-                    rows = rows + live
-                if rows:
-                    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume",
-                                                     "close_time", "qav", "trades", "tbav", "tqav", "ignore"])
-                    df = df[["ts", "open", "high", "low", "close", "volume"]].copy()
-                    df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
-                    if path.exists():
-                        old = pd.read_csv(path)
-                        old["ts"] = cex.parse_ts(old["ts"])
-                        df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
-                    df.to_csv(path, index=False)
+                _, err = bco.bybit_klines(sym, start, path)
+                if err:
+                    _, err = bco.okx_klines(sym.replace("USDT", "-USDT"),
+                                            int(time.time() * 1000), path)
+                if not err:
                     derive.derive_sym(sym, ["1h", "4h", "1d"])
-                    print(f"  [cex {sym}] {len(rows)} new bars -> {path.name}", flush=True)
+                    print(f"  [cex {sym}] topped -> {len(pd.read_csv(path))} rows", flush=True)
             except Exception as e:
                 print(f"  [cex {sym}] error: {e}", flush=True)
         s["cex_cursor"] = end % n
@@ -114,7 +109,6 @@ def cex_worker(s, once):
         print(f"  [cex] cursor -> {s['cex_cursor']}/{n}", flush=True)
         if once:
             return
-        # yield briefly so DEX threads get scheduler time (they sleep anyway)
         time.sleep(1)
 
 
@@ -210,42 +204,47 @@ def cex_extra_topup_worker(once):
                         tgt = DATADIR / f"{sym}_5m_max.csv"
                         last = None
                         if tgt.exists():
-                            d = pd.read_csv(tgt, parse_dates=["ts"])
-                            if len(d):
-                                last = int(d["ts"].max().timestamp() * 1000) + 1
+                            d = pd.read_csv(tgt)
+                            if len(d) and "ts" in d.columns:
+                                last = int(pd.to_datetime(d["ts"], utc=True).max().timestamp() * 1000) + 1
                         start = last or int(pd.Timestamp("2021-01-01", tz="UTC").timestamp() * 1000)
                         if venue == "bybit":
-                            rows, err = bco.bybit_klines(sym, start, 1000)
-                            # bybit returns 7 fields [ts,o,h,l,c,v,close_time]; keep 6
-                            rows = [r[:6] for r in rows] if rows else rows
+                            # bybit_klines(sym, start_ms, tgt, limit) appends
+                            # pages directly to tgt; returns (result, err).
+                            _, err = bco.bybit_klines(sym, start, tgt)
                         elif venue == "okx":
-                            # okx_klines walks backward from after_ms; use now to grab recent
-                            rows, err = bco.okx_klines(sym.replace("-", ""), int(time.time() * 1000), 200)
+                            # okx_klines(sym, after_ms, tgt, limit) appends to tgt.
+                            _, err = bco.okx_klines(sym.replace("-", ""),
+                                                    int(time.time() * 1000), tgt)
                         else:
+                            # mexc_klines(sym, start_ms, end_ms=None) RETURNS rows.
                             rows, err = bfm.mexc_klines(sym, start)
-                        if err or not rows:
+                            if err or not rows:
+                                continue
+                            clean = []
+                            for r in rows:
+                                try:
+                                    clean.append([int(float(r[0])), float(r[1]),
+                                                  float(r[2]), float(r[3]),
+                                                  float(r[4]), float(r[5])])
+                                except Exception:
+                                    pass
+                            if not clean:
+                                continue
+                            df = pd.DataFrame(clean, columns=["ts", "open", "high",
+                                                              "low", "close", "volume"])
+                            df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+                            if tgt.exists():
+                                old = pd.read_csv(tgt, parse_dates=["ts"]).set_index("ts")
+                                df = pd.concat([old, df.set_index("ts")]).sort_index()
+                                df = df[~df.index.duplicated(keep="last")]
+                            else:
+                                df = df.set_index("ts")
+                            df.to_csv(tgt)
+                        if err:
                             continue
-                        # coerce each row to [ts(int-ms), o,h,l,c,v(float)]
-                        clean = []
-                        for r in rows:
-                            try:
-                                clean.append([int(float(r[0])), float(r[1]), float(r[2]),
-                                              float(r[3]), float(r[4]), float(r[5])])
-                            except Exception:
-                                pass
-                        if not clean:
-                            continue
-                        df = pd.DataFrame(clean, columns=["ts", "open", "high", "low", "close", "volume"])
-                        df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
-                        if tgt.exists():
-                            old = pd.read_csv(tgt, parse_dates=["ts"]).set_index("ts")
-                            df = pd.concat([old, df.set_index("ts")]).sort_index()
-                            df = df[~df.index.duplicated(keep="last")]
-                        else:
-                            df = df.set_index("ts")
-                        df.to_csv(tgt)
                         if sym == syms[0]:
-                            print(f"  [extra {venue}] topped {sym} -> {len(df)} rows", flush=True)
+                            print(f"  [extra {venue}] topped {sym} -> {len(pd.read_csv(tgt))} rows", flush=True)
                     except Exception as e:
                         print(f"  [extra {venue} {sym}] err {str(e)[:120]}", flush=True)
             # funding top-up

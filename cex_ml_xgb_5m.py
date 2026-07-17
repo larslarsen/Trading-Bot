@@ -20,11 +20,13 @@ Usage:
   python cex_ml_xgb_5m.py --once    # one ranking + execution pass
 """
 import argparse
+import gc
 import json
 import sys
 import time
 import warnings
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
@@ -37,9 +39,48 @@ import xgboost as xgb
 from pipeline import (
     fetch_data, add_resampled_features, load_macro_data, add_macro_signals,
     derive_features, detect_regime, ALL_FEATURES, MULTI_ASSET_FILE, USE_MULTI_ASSET,
+    ROOT, DATA_FILE,
 )
 from multi_asset_features import add_multi_asset_features
 from order_manager_multi import MultiPositionState
+from mem_guard import rss_mb, guard as mem_guard_abort
+
+# ── cached CSV reads ──────────────────────────────────────────────────────
+# fetch_data() does a full pd.read_csv of the multi-million-row 5m files on
+# EVERY call. price_for() calls it once per ranked pair per poll, so a single
+# cycle re-reads BTC's 1.4M-row CSV a dozen+ times -> RSS spikes to ~22 GB and
+# the kernel OOM-killer fires. Cache each CSV per file-mtime: re-read only when
+# the poller appends a new bar (mtime changes), so live freshness is preserved.
+import os as _os
+_FETCH_CACHE = {}  # path_str -> (mtime_ns, DataFrame)
+
+def _path_for(symbol):
+    """Resolve the CSV fetch_data() would load, without calling it."""
+    if symbol is None or str(symbol).upper() in ("BTC", "BTC/USDT"):
+        return ROOT / DATA_FILE
+    stem = str(symbol).upper().replace("/", "").replace("USDT", "")
+    candidates = [
+        ROOT / "data" / f"{stem}USDT_5m_max.csv",
+        ROOT / "data" / f"{stem}USDT_5m_blofin_max.csv",
+        ROOT / "data" / f"{stem}USDC_5m_blofin_max.csv",
+        ROOT / f"{stem.lower()}_5m.csv",
+    ]
+    return next((p for p in candidates if p.exists()), None)
+
+def _cached_fetch(symbol):
+    path = _path_for(symbol)
+    if path is None:
+        return fetch_data(symbol)  # let fetch_data raise its own FileNotFoundError
+    key = str(path)
+    mtime = _os.stat(path).st_mtime_ns
+    if key in _FETCH_CACHE and _FETCH_CACHE[key][0] == mtime:
+        return _FETCH_CACHE[key][1]
+    df = fetch_data(symbol)
+    _FETCH_CACHE[key] = (mtime, df)
+    return df
+
+# Live daemon: THROTTLE (skip a pass), never hard-exit, so trading keeps running.
+MEM_GUARD_MB = 6144  # above this RSS, skip the heavy feature build for one cycle
 
 REPO = Path(__file__).parent
 MODELS_DIR = REPO / "models"
@@ -107,16 +148,36 @@ def active_pairs():
 
 
 def load_models():
-    """Load every ACTIVE pair's model once. Returns {pair: XGBClassifier}."""
+    """Load every ACTIVE pair's model once. Returns {pair: XGBClassifier}.
+
+    FAILS FAST AND LOUD: every model must expose n_features_in_ == canonical
+    N_FEATURES AND feature_names_in_ == canonical CANONICAL. A mismatch means a
+    stale/wrong model was trained or a code drift changed the feature set;
+    serving a mismatched block silently ranks FLAT (or worse, garbage), so we
+    abort the whole process instead of degrading quietly."""
+    from canonical_features import N_FEATURES, CANONICAL
     models = {}
     for pair, path in active_pairs().items():
         if not path.exists():
-            print(f"[ml_multi] no model for {pair} ({path.name}), skipping")
-            continue
+            raise RuntimeError(
+                f"[ml_multi] FATAL: missing model for {pair} ({path.name})")
         m = xgb.XGBClassifier()
         m.load_model(str(path))
+        nf = getattr(m, "n_features_in_", None)
+        if nf != N_FEATURES:
+            raise RuntimeError(
+                f"[ml_multi] FATAL: {pair} model {path.name} has n_features_in_="
+                f"{nf}, expected canonical {N_FEATURES}. Retrain with "
+                f"retrain_all.py before starting the bot.")
+        exp = getattr(m, "feature_names_in_", None)
+        if exp is not None and list(exp) != list(CANONICAL):
+            raise RuntimeError(
+                f"[ml_multi] FATAL: {pair} model {path.name} feature names do "
+                f"not match canonical CANONICAL. Retrain with retrain_all.py.")
         models[pair] = m
-        print(f"[ml_multi] loaded {pair} model: n_features={getattr(m, 'n_features_in_', None)}")
+        print(f"[ml_multi] loaded {pair} model: n_features={nf} (canonical OK)")
+    if not models:
+        raise RuntimeError("[ml_multi] FATAL: no models loaded; refusing to run")
     return models
 
 
@@ -137,9 +198,12 @@ _SYM_CACHE = {}  # pair -> {"bar_ts": ts, "df": built_frame}
 def _load_globals():
     if _GLOBAL_CACHE["ready"]:
         return
-    # macro (static daily CSVs, symbol-independent)
+    # macro (static daily CSVs, symbol-independent). Load over a WIDE index so
+    # the 20-period MA signals compute; add_macro_signals forwards to the 5m
+    # index. A 2-row stub made every macro feature NaN (MA needs >=20 pts).
     try:
-        _GLOBAL_CACHE["macro"] = load_macro_data(pd.date_range("2010-01-01", periods=2, freq="D", tz="UTC"))
+        _GLOBAL_CACHE["macro"] = load_macro_data(
+            pd.date_range("2000-01-01", periods=8000, freq="D", tz="UTC"))
     except Exception:
         _GLOBAL_CACHE["macro"] = None
     # DEX breadth (global)
@@ -164,7 +228,13 @@ def build_features(symbol):
     _load_globals()
 
     # per-symbol cache key = timestamp of the last bar in the raw 5m series
-    raw = fetch_data(fsym)
+    raw = _cached_fetch(fsym)
+    if raw.empty:
+        return None, None
+    # Drop any all-NaN / NaT rows (the poller can append a malformed trailing
+    # row with no timestamp). A NaT in the index makes int(index[-1].timestamp())
+    # raise -> the whole pair's prediction dies every poll. Strip before keying.
+    raw = raw[~raw.index.isna()]
     if raw.empty:
         return None, None
     bar_ts = int(raw.index[-1].timestamp())
@@ -223,9 +293,11 @@ def build_features(symbol):
         for cand in extra:
             if cand in df.columns:
                 features.append(cand)
-        df = df.dropna(subset=[c for c in features if df[c].notna().any()])
-        if df.empty:
-            return None, None
+        # CANONICAL: present exactly the frozen, shared 98-feature block so the
+        # serving input matches what the retrained models expect (identical
+        # dims + order). Zero-fills optional columns a pair lacks.
+        from canonical_features import resolve
+        df, features = resolve(df, features)
         _SYM_CACHE[symbol] = {"bar_ts": bar_ts, "df": df, "features": features}
 
     df = _SYM_CACHE[symbol]["df"]
@@ -264,11 +336,15 @@ def predict_pair(model, fvec):
 
 def price_for(symbol):
     """Last close for a pair from its 5m history."""
-    df = fetch_data(fetch_symbol(symbol))
+    df = _cached_fetch(fetch_symbol(symbol))
     return float(df["close"].iloc[-1]) if not df.empty else None
 
 
 def run_once(models, state):
+    # Hard in-cycle backstop: abort BEFORE a single poll can exceed the cap.
+    # The between-cycle guard only checks between cycles, so it can't catch a
+    # single-cycle allocation spike -- that's exactly what OOM-killed us.
+    mem_guard_abort(4096)
     # 1) gather ranked signals
     ranked = []
     for pair, model in models.items():
@@ -348,10 +424,20 @@ def main():
         run_once(models, state)
         return
     while True:
+        # Memory throttle: if RSS is climbing, skip the heavy build this cycle
+        # (log + reclaim + extra cooldown) instead of risking an OOM kill.
+        rss = rss_mb()
+        if rss > MEM_GUARD_MB:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] MEM THROTTLE: "
+                  f"RSS={rss:.0f}MB > cap={MEM_GUARD_MB}MB — skipping build, gc + cooldown")
+            gc.collect()
+            time.sleep(POLL_SEC + 60)
+            continue
         try:
             run_once(models, state)
         except Exception as e:
             print(f"[{datetime.now(timezone.utc).isoformat()}] error: {e}")
+        gc.collect()
         time.sleep(POLL_SEC)
 
 

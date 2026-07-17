@@ -14,6 +14,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from mem_guard import guard as _mem_guard
+
+MEM_LIMIT_MB = 1536  # hard RSS cap; abort this one-shot run before an OOM kill
 
 from order_manager_multi import MultiPositionState
 from config import (
@@ -112,6 +115,7 @@ state = MultiPositionState(initial_capital=INITIAL)
 prices = {}
 raw_signals = {}
 for stem in stems:
+    _mem_guard(MEM_LIMIT_MB)  # bound the prices{} accumulator before each read
     p = ROOT / f'{stem}_1d_max.csv'
     if not p.exists():
         continue

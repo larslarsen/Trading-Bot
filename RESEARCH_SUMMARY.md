@@ -117,6 +117,27 @@ sign-test the 1d model got — we trained them and trusted in-sample acc
 **Expected outcome:** Sharpe 0.8–1.2 IF funding/liquidation/on-chain
 features carry signal (per ROADMAP Phase-3 thesis, now with data to test it).
 
+## Empirical paper evals (run this session, one at a time, OOS-gated)
+
+### Paper #1 — order flow (Anastasopoulos 2024) vs no-flow
+- Method: per-pair OOS via `eval_flow_paper1.py` (PIT walk-forward,
+  5 folds, flow model [disk, flow cols in CANONICAL] vs no-flow
+  [flow cols stripped from ALWAYS, retrained] -> paired exact
+  sign test on per-pair dir-acc. 30 gated pairs.
+- RESULT: flow beats no-flow on **30/30 pairs** directionally, but
+  exact sign test p=1.0. Why: both means are sub-0.50
+  (flow 0.497, noflow 0.458) — flow lifts direction
+  CONSISTENTLY but the gap (~0.04) is statistically nil
+  against the coin-flip ceiling.
+- READING: order flow is a WEAK, directionaly-correct
+  addition (free to keep in CANONICAL — `canonical_features.ALWAYS`
+  now retains taker_buy_sell_ratio/imbalance/trade_count/spread).
+  It does NOT break the ROC-AUC≈0.60 ceiling. Matches
+  the doc's honest finding. Keep flow in features; move on.
+- Harness bugs fixed this run: double CSV load, KeyError('high')
+  (OHLCV sliced before triple_barrier_labels), load_flow case
+  mismatch (btc_xgb.json), X shape 113 vs 118 (OHLCV in model input).
+
 ## Open decision (asked user, pending)
 - Gate the live 5m bot to a SMALLER universe for 5-min-poll RAM headroom
   (tuning by panel) — deferred until per-pair models are retrained +

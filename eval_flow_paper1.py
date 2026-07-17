@@ -46,7 +46,7 @@ def strip_flow_train(sym, df=None, feats=None):
     df = df[keep].dropna(subset=["label"])
     if len(df) < 2000:
         return None
-    X = np.nan_to_num(df.drop(columns=["label"]).values, 0.0)
+    X = np.nan_to_num(df.drop(columns=["label","open","high","low","close","volume"]).values, 0.0)
     y = df["label"].values.astype(int)
     n = len(y); i = int(n * 0.8)
     m = xgb.XGBClassifier(objective="multi:softmax", num_class=3,
@@ -77,7 +77,7 @@ def oos_dir_acc(model, X, y):
 
 
 def load_flow(sym):
-    p = MODELS / f"{sym.replace('USDT','')}_xgb.json"
+    p = MODELS / f"{sym.replace('USDT','').lower()}_xgb.json"
     if not p.exists():
         return None
     m = xgb.XGBClassifier(); m.load_model(str(p)); return m
@@ -99,7 +99,7 @@ def main():
             df = df[keep].dropna(subset=["label"])
             if len(df) < 2000:
                 continue
-            X = np.nan_to_num(df.drop(columns=["label"]).values, 0.0)
+            X = np.nan_to_num(df.drop(columns=["label","open","high","low","close","volume"]).values, 0.0)
             y = df["label"].values.astype(int)
             fm = load_flow(sym)
             nm_path = strip_flow_train(sym, df=df, feats=feats)

@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
 """Shared DEX (chain, pool) resolver for free GeckoTerminal OHLCV collection.
 
-Why this exists: the old `backfill_dex_history_gt.resolve_top_pool` called
-DexScreener `/search` with no strict matching and mapped by chainId, which
-returned "no pairs" for 99% of our universe (Robinhood-tokenized tickers,
-garbage names, raw contract addresses). The WORKING resolver was already in
-`dex_micro_poller.resolve_address` (it produced all 607 dex_data files) but it
-returns the `robinhood` chain for most of our universe -- and GeckoTerminal has
-no "robinhood" network slug, so those tokens cannot be pulled.
+Resolves a ticker to the highest-liquidity REAL-CHAIN pool and returns the
+GeckoTerminal (network, pool_address) for the still-free pool-level OHLCV
+endpoint: /networks/{net}/pools/{pool}/ohlcv/{tf}.
 
-This module resolves a ticker to the highest-liquidity REAL-CHAIN pool
-(ethereum/bsc/solana/base/arbitrum/polygon/avax/optimism) and returns the
-GeckoTerminal (network, pool_address) needed for the still-free pool-level
-OHLCV endpoint: /networks/{net}/pools/{pool}/ohlcv/{tf}.
+Dual-egress: this box has two usable egress IPs --
+  * CLEAN  -> 192.168.1.100 (enp6s0)  -> clean ISP IP (fast, but GT free cap)
+  * VPN    -> 10.0.129.5   (azirevpn) -> shared VPN IP (slower, throttled more)
+We bind the source address to force a given egress, and on a 429 we fall back
+to the OTHER egress, so both IPs get used and throughput ~doubles.
 
-Used by both backfill_dex_history_gt.py (deep history) and dex_ohlcv_sampler.py
+Used by backfill_dex_history_gt.py (deep history) and dex_ohlcv_sampler.py
 (live 1m/5m). Single source of truth -> DRY.
 """
+import socket
 import time
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
 
 REPO = Path(__file__).parent
 UA = {"User-Agent": "Mozilla/5.0 (research)"}
 DEX_API = "https://api.dexscreener.com/latest/dex"
 GT_API = "https://api.geckoterminal.com/api/v2"
+
+# Source addresses to force egress out a specific interface.
+# CLEAN = your real ISP IP (routes via enp6s0 / 192.168.1.1).
+# VPN   = the azirevpn tunnel address (shared VPN IP).
+CLEAN_SRC = "192.168.1.100"
+VPN_SRC = "10.0.129.5"
+# Order we try egresses in. Clean first (faster), VPN as fallback.
+EGRESS_ORDER = [CLEAN_SRC, VPN_SRC]
 
 # DexScreener chainId -> GeckoTerminal network slug
 NETMAP = {
@@ -37,20 +44,55 @@ NETMAP = {
 EXCLUDE_CHAINS = ("robinhood",)
 
 
-def fetch_json(url, params=None, timeout=20, tries=3):
-    for i in range(tries):
-        try:
-            r = requests.get(url, params=params, headers=UA, timeout=timeout)
-            if r.status_code == 200:
-                return r.json(), None
-            if r.status_code == 429:
-                time.sleep(min(2 ** i * 3, 30))
+class _BindAdapter(HTTPAdapter):
+    """Bind the local source address so traffic egresses a chosen interface."""
+    def __init__(self, source_address, *a, **k):
+        self._src = source_address
+        super().__init__(*a, **k)
+
+    def init_poolmanager(self, *a, **k):
+        k["source_address"] = self._src
+        super().init_poolmanager(*a, **k)
+
+
+def _session(src):
+    s = requests.Session()
+    a = _BindAdapter(source_address=(src, 0))
+    s.mount("http://", a)
+    s.mount("https://", a)
+    return s
+
+
+_SESSIONS = {src: _session(src) for src in EGRESS_ORDER}
+
+
+def fetch_json(url, params=None, timeout=20, tries=3, egress=None):
+    """GET url as JSON. Returns (dict, None) or (None, reason).
+
+    egress: a specific source IP to bind, or None to race both egresses
+    (clean first, VPN on 429). One attempt per egress per cycle, brief
+    backoff between cycles only -- so a fully-throttled token costs at most
+    tries*len(egress) quick requests, never a long per-IP stall."""
+    sources = [egress] if egress else EGRESS_ORDER
+    last_err = "exhausted retries"
+    for cyc in range(tries):
+        for src in sources:
+            s = _SESSIONS[src]
+            try:
+                r = s.get(url, params=params, headers=UA, timeout=timeout)
+                if r.status_code == 200:
+                    return r.json(), None
+                if r.status_code == 429:
+                    last_err = "HTTP 429"
+                    continue
+                last_err = f"HTTP {r.status_code}"
                 continue
-            return None, f"HTTP {r.status_code}"
-        except Exception as e:
-            time.sleep(min(2 ** i * 2, 15))
-            continue
-    return None, "exhausted retries"
+            except Exception as e:
+                last_err = f"err:{e}"
+                continue
+        if cyc < tries - 1:
+            time.sleep(min(2 ** cyc * 2, 10))
+    return None, last_err
 
 
 def safe_name(tok):
@@ -65,11 +107,10 @@ def real_top_pool(tok, exclude_chains=EXCLUDE_CHAINS, resolve_tries=4):
     top-liquidity real-chain pair so breadth is preserved.
 
     DexScreener's free API returns HTTP 200 with an EMPTY `pairs` list when
-    our (shared VPN) IP is over its rate limit -- NOT a 429. So an empty
-    result is ambiguous: it may be a genuine no-match OR a silent throttle.
-    We treat empty `pairs` as retryable ('throttled') and back off, so a
-    transient throttle doesn't permanently drop a collectable token.
-    Returns (tuple, None) or (None, reason)."""
+    our IP is over its rate limit -- NOT a 429. So an empty result is
+    ambiguous: genuine no-match OR silent throttle. We treat empty `pairs`
+    as retryable ('throttled') and back off, racing both egresses.
+    Returns (tuple, None) or (None, reason). reason may be 'throttled'."""
     for attempt in range(resolve_tries):
         d, err = fetch_json(f"{DEX_API}/search", params={"q": tok})
         if err:
@@ -113,13 +154,31 @@ def real_top_pool(tok, exclude_chains=EXCLUDE_CHAINS, resolve_tries=4):
 
 
 def gt_pool_ohlcv(net, pool, tf="day", page=1, limit=1000, aggregate=1):
-    """Free pool-level OHLCV. Returns (ohlcv_list, None), (None, 'throttled')
-    on 429, or (None, err) on other failures."""
-    url = (f"{GT_API}/networks/{net}/pools/{pool}/ohlcv/{tf}"
-           f"?limit={limit}&page={page}&aggregate={aggregate}")
-    d, err = fetch_json(url)
+    """Free GeckoTerminal POOL-LEVEL OHLCV. Races both egresses (clean first,
+    VPN on 429). Returns (rows, None) or (None, reason)."""
+    url = f"{GT_API}/networks/{net}/pools/{pool}/ohlcv/{tf}"
+    d, err = fetch_json(url, params={
+        "page": page, "limit": limit, "aggregate": aggregate,
+        "currency": "usd",
+    })
     if err:
-        return None, ("throttled" if "429" in str(err) else err)
-    if "data" not in d:
-        return None, "no data"
-    return d["data"].get("attributes", {}).get("ohlcv_list") or [], None
+        return None, err
+    try:
+        attrs = d["data"]["attributes"]
+        rows = attrs.get("ohlcv_list") or []
+        out = [[r[0], float(r[1]), float(r[2]), float(r[3]),
+                float(r[4]), float(r[5])] for r in rows]
+        return out, None
+    except Exception as e:
+        return None, f"parse:{e}"
+
+
+if __name__ == "__main__":
+    import sys
+    tok = sys.argv[1] if len(sys.argv) > 1 else "AAVE"
+    r = real_top_pool(tok)
+    print("real_top_pool:", r)
+    if r[0]:
+        net, pool, liq = r[0]
+        bars, e = gt_pool_ohlcv(net, pool, "day", 1, 5)
+        print("gt_pool_ohlcv bars:", len(bars) if bars else 0, "err:", e)

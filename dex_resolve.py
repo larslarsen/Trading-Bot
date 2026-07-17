@@ -26,13 +26,12 @@ UA = {"User-Agent": "Mozilla/5.0 (research)"}
 DEX_API = "https://api.dexscreener.com/latest/dex"
 GT_API = "https://api.geckoterminal.com/api/v2"
 
-# Source addresses to force egress out a specific interface.
-# CLEAN = your real ISP IP (routes via enp6s0 / 192.168.1.1).
-# VPN   = the azirevpn tunnel address (shared VPN IP).
+# Egress: the box's clean ISP IP (routes via enp6s0/192.168.1.1, off-VPN).
+# The azirevpn tunnel address (10.0.129.5) cannot source outbound requests,
+# so the VPN IP is NOT a usable second egress. Clean IP is unthrottled after
+# the policy-route change; that's what we use.
 CLEAN_SRC = "192.168.1.100"
-VPN_SRC = "10.0.129.5"
-# Order we try egresses in. Clean first (faster), VPN as fallback.
-EGRESS_ORDER = [CLEAN_SRC, VPN_SRC]
+EGRESS_ORDER = [CLEAN_SRC]
 
 # DexScreener chainId -> GeckoTerminal network slug
 NETMAP = {
@@ -101,18 +100,15 @@ def safe_name(tok):
             .replace("\\", "_"))
 
 
-def real_top_pool(tok, exclude_chains=EXCLUDE_CHAINS, resolve_tries=4):
+def real_top_pool(tok, exclude_chains=EXCLUDE_CHAINS, resolve_tries=4, egress=None):
     """Resolve tok -> (gtnet, pool_address, liquidity) for the highest-LIQ
-    REAL-CHAIN pool. Prefers an exact base-symbol match; falls back to the
-    top-liquidity real-chain pair so breadth is preserved.
+    REAL-CHAIN pool.
 
-    DexScreener's free API returns HTTP 200 with an EMPTY `pairs` list when
-    our IP is over its rate limit -- NOT a 429. So an empty result is
-    ambiguous: genuine no-match OR silent throttle. We treat empty `pairs`
-    as retryable ('throttled') and back off, racing both egresses.
-    Returns (tuple, None) or (None, reason). reason may be 'throttled'."""
+    egress: pin DexScreener request to one source IP ('192.168.1.100' clean
+    or '10.0.129.5' vpn); None races both. Empty `pairs` is treated as
+    retryable (silent throttle), not a permanent miss."""
     for attempt in range(resolve_tries):
-        d, err = fetch_json(f"{DEX_API}/search", params={"q": tok})
+        d, err = fetch_json(f"{DEX_API}/search", params={"q": tok}, egress=egress)
         if err:
             if "429" in str(err):
                 time.sleep(min(2 ** attempt * 4, 30))

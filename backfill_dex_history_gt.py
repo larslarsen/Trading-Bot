@@ -100,8 +100,8 @@ def gt_ohlcv(net, pool, tf="day", page=1, limit=1000, aggregate=1):
     return ohlc, None
 
 
-def backfill_token(tok, tf="day", max_pages=200):
-    res, err = real_top_pool(tok)
+def backfill_token(tok, tf="day", max_pages=200, egress=None):
+    res, err = real_top_pool(tok, egress=egress)
     if err:
         return 0, f"resolve: {err}"
     net, pool, liq = res
@@ -151,7 +151,15 @@ def main():
                     help="seconds between tokens (throttle so the 1m daemon keeps API budget)")
     ap.add_argument("--max-passes", type=int, default=20,
                     help="retry passes for tokens skipped due to rate-limit")
+    ap.add_argument("--egress", default="",
+                    help="pin all requests to one source IP: 'clean' (192.168.1.100) "
+                         "or 'vpn' (10.0.129.5). Default races both.")
     args = ap.parse_args()
+    eg = None
+    if args.egress == "clean":
+        eg = "192.168.1.100"
+    elif args.egress == "vpn":
+        eg = "10.0.129.5"
     if args.tokens:
         toks = [t.strip() for t in args.tokens.split(",") if t.strip()]
     else:
@@ -181,7 +189,7 @@ def main():
                 done += 1
                 continue
             try:
-                n, info = backfill_token(tok, args.tf)
+                n, info = backfill_token(tok, args.tf, egress=eg)
             except Exception as ex:
                 print(f"  {tok}: EXC {str(ex)[:80]}", flush=True)
                 time.sleep(args.sleep)

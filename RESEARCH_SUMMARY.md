@@ -119,21 +119,30 @@ features carry signal (per ROADMAP Phase-3 thesis, now with data to test it).
 
 ## Empirical paper evals (run this session, one at a time, OOS-gated)
 
-### Paper #1 — order flow (Anastasopoulos 2024) vs no-flow
+### Paper #1 — order flow (Anastasopoulos 2024) vs no-flow  [INCONCLUSIVE — data gap]
 - Method: per-pair OOS via `eval_flow_paper1.py` (PIT walk-forward,
-  5 folds, flow model [disk, flow cols in CANONICAL] vs no-flow
-  [flow cols stripped from ALWAYS, retrained] -> paired exact
-  sign test on per-pair dir-acc. 30 gated pairs.
-- RESULT: flow beats no-flow on **30/30 pairs** directionally.
-  flow 0.497 vs noflow 0.458. Corrected exact sign test
-  p ≈ 1.9e-9 (HARNESS SIGN-TEST BUG fixed: was reporting
-  p=1.0 via `k=min(wins,losses)`; correct is `k=max`).
-- READING: order flow is a WEAK but SIGNIFICANT directional
-  lift (p≈1.9e-9), but the magnitude is trivial — both means
-  are sub-0.50 (below coin-flip). It does NOT break the
-  ROC-AUC≈0.60 ceiling. Keep flow in CANONICAL (free,
-  directionally right); move on. Magnitude, not significance,
-  is the limiter here.
+  5 folds, flow model [flow cols in CANONICAL] vs no-flow
+  [flow cols stripped] -> paired exact sign test. 30 gated pairs.
+- RESULT AS RUN: flow beats no-flow 30/30, flow 0.497 vs noflow 0.458,
+  corrected sign test p~1.9e-9. BUT THIS IS SPURIOUS — see below.
+- DATA GAP (found post-hoc): the flow cols (`taker_buy_sell_ratio`,
+  `trade_count`, `taker_buy_vol`, `taker_sell_vol`) are 0 non-null on
+  EVERY gated pair (verified on BTC: 0 non-null). The DEX taker-flow
+  file `data/trade_agg_5m.csv` that `micro_features.py` reads is
+  MISSING from disk. `imbalance`/`spread` (orderbook) are all-zero.
+  So the "flow" model trained on empty/zero-filled cols -> same as
+  no-flow -> the 30/30 "win" is noise on sub-0.50 magnitudes, NOT
+  real order-flow signal. Significance != meaningfulness here.
+- Also: the CEX flow we DO have (`data/FLOWUSDT_5m_max.csv`, 521k
+  rows) is NOT wired into `micro_features.py` (it reads the missing
+  trade_agg file, not FLOWUSDT). So available flow data is unwired too.
+- VERDICT: **CANNOT rule order flow in or out.** Paper #1 is
+  UNTESTED, not a weak-positive. To actually test: wire
+  FLOWUSDT_5m_max.csv (or rebuild trade_agg_5m.csv from DEX trades)
+  into the flow features, then re-run eval_flow_paper1.py. Blocked
+  on data wiring, not on method.
+- Harness bugs fixed: double CSV load, KeyError('high'), load_flow
+  case mismatch (btc_xgb.json), X shape 113 vs 118.
 
 ### Paper #2 — information-driven (volume) bars (DNB 2024 / Springer 2025) vs 5m time bars
 - Method: per-pair OOS via `eval_infobars_paper2.py`. Baseline =

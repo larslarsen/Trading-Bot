@@ -37,7 +37,7 @@ MICRO_DIR = REPO / "data" / "dex_micro"
 OUT_DIR = REPO / "data" / "dex"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-from backfill_dex_history_gt import resolve_top_pool, gt_ohlcv, GT_API
+from dex_resolve import real_top_pool, gt_pool_ohlcv, safe_name, NETMAP
 
 SLEEP_PER_CALL = 3.0  # ~20 calls/min -> within free 10-30 limit
 
@@ -113,16 +113,16 @@ def cycle(top_n, tf, once):
     added = 0
     for tok in toks:
         try:
-            res, err = resolve_top_pool(tok)
+            res, err = real_top_pool(tok)
             if not res:
                 continue
-            net, pool, dex = res
+            net, pool, liq = res
             # GeckoTerminal timeframe names: 'minute'/'hour'/'day'. 1m -> minute
-            # agg 1; 5m -> minute agg 5. Derive 1h/4h/1d locally from base.
+            # agg 5; 5m -> minute agg 5. Derive 1h/4h/1d locally from base.
             gt_tf = "minute"
             agg = 5 if tf == "5m" else 1
-            # fetch newest 2 candles of the base tf
-            bars, e = gt_ohlcv(net, pool, gt_tf, 1, 2, aggregate=agg)
+            # fetch newest 2 candles of the base tf (free POOL-level endpoint)
+            bars, e = gt_pool_ohlcv(net, pool, gt_tf, 1, 2, aggregate=agg)
             if bars:
                 for bar in bars:
                     added += append_bar(tok, tf, bar)

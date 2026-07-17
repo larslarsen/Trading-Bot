@@ -30,10 +30,12 @@ Run:
   python collector_daemon.py --once     # one cycle, then exit (for testing)
 """
 from __future__ import annotations
-import sys, os, time, fcntl, datetime as dt
+import sys, os, time, fcntl, datetime as dt, signal
 import pandas as pd
 import ccxt
 from pathlib import Path
+
+import reliability as rel
 
 # ------------------------------- CONFIG --------------------------------------
 REPO            = Path('/home/lars/trading-bot')
@@ -70,18 +72,33 @@ _ex_cache: dict = {}
 def log(msg: str) -> None:
     line = f"{dt.datetime.now():%Y-%m-%d %H:%M:%S} {msg}"
     print(line, flush=True)
-    try:
-        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(LOG_PATH, 'a') as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
+    # fsync'd append; logging must never raise and must survive a crash.
+    rel.safe_log(LOG_PATH, line, stamp=False)
+
+
+_SHUTDOWN = False
+
+
+def _on_signal(signum, frame):
+    global _SHUTDOWN
+    _SHUTDOWN = True
+    log(f"received {signal.Signals(signum).name}; finishing current cycle then exiting")
 
 
 def get_ex(name: str):
     if name not in _ex_cache:
-        ex = getattr(ccxt, name)({'enableRateLimit': True})
-        ex.load_markets()
+        # explicit network timeout so a stalled exchange can never wedge a call
+        ex = getattr(ccxt, name)({
+            'enableRateLimit': True,
+            'timeout': 30000,          # 30s hard cap per REST call
+            'options': {'defaultType': 'spot'},
+        })
+        # load_markets hits the exchange; retry with backoff (transient 5xx/429).
+        rel.retry_call(
+            ex.load_markets,
+            tries=4, base=2.0, cap=30.0, jitter=0.3,
+            on_retry=lambda a, e: log(f"load_markets {name} attempt {a} failed: {e!r}"),
+        )
         _ex_cache[name] = ex
     return _ex_cache[name]
 
@@ -134,7 +151,13 @@ def build_jobs() -> list:
 
 
 def fetch_forward(ex, ccxt_sym: str, tf: str, fname: Path) -> int:
-    """Append new bars to fname. Returns count of newly added bars."""
+    """Append new bars to fname. Returns count of newly added bars.
+
+    The REST fetch is wrapped in retry_call (exponential backoff + jitter) so a
+    transient ccxt NetworkError/ExchangeNotAvailable does not cost a whole job
+    — it retries in-place instead of being logged-and-skipped. The write is
+    atomic (tmp + os.replace) so a kill mid-write can't corrupt the CSV.
+    """
     existing = pd.read_csv(fname) if fname.exists() else None
     if existing is not None and len(existing):
         # CSV round-trip leaves 'ts' as str; coerce so concat/sort types match.
@@ -143,7 +166,14 @@ def fetch_forward(ex, ccxt_sym: str, tf: str, fname: Path) -> int:
     if existing is not None and len(existing):
         last_ms = int(existing['ts'].max().value // 10**6) + 1
         since = last_ms
-    bars = ex.fetchOHLCV(ccxt_sym, tf, since=since, limit=LIMIT)
+    # retry transient network/exchange errors in place
+    bars = rel.retry_call(
+        lambda: ex.fetchOHLCV(ccxt_sym, tf, since=since, limit=LIMIT),
+        tries=4, base=1.5, cap=30.0, jitter=0.3,
+        exceptions=(ccxt.NetworkError, ccxt.ExchangeNotAvailable,
+                    ccxt.RequestTimeout, ccxt.ExchangeError),
+        on_retry=lambda a, e: log(f"retry fetchOHLCV {ccxt_sym} {tf} attempt {a}: {e!r}"),
+    )
     if not bars:
         return 0
     df = pd.DataFrame(bars, columns=['ts', 'open', 'high', 'low', 'close', 'volume'])
@@ -151,7 +181,7 @@ def fetch_forward(ex, ccxt_sym: str, tf: str, fname: Path) -> int:
     if existing is not None and len(existing):
         df = pd.concat([existing, df])
     df = df.drop_duplicates('ts').sort_values('ts').reset_index(drop=True)
-    df.to_csv(fname, index=False)
+    rel.atomic_write_csv(fname, df, index=False)
     return max(0, len(df) - (len(existing) if existing is not None else 0))
 
 
@@ -175,8 +205,12 @@ def run_cycle(gate: RateGate, jobs: list, start_index: int = 0) -> tuple[int, in
     t0 = time.time()
     total_new = 0
     done = 0
+    errs = 0
     n = len(jobs)
     for i in range(n):
+        if _SHUTDOWN:
+            log("shutdown requested; stopping cycle early")
+            break
         idx = (start_index + i) % n
         ex_name, sym, ccxt_sym, tf = jobs[idx]
         if time.time() - t0 > MAX_CYCLE_SECONDS:
@@ -192,9 +226,17 @@ def run_cycle(gate: RateGate, jobs: list, start_index: int = 0) -> tuple[int, in
             if done % 50 == 0:
                 log(f"  ...progress {done}/{n} jobs, +{total_new} bars so far")
             time.sleep(PAUSE)
-        except Exception as e:
-            log(f"ERR {ex_name} {sym} {tf}: {str(e)[:80]}")
+        except ccxt.BaseError as e:
+            errs += 1
+            # full error text (not truncated) so a real data problem is visible
+            log(f"ERR {ex_name} {sym} {tf}: {type(e).__name__}: {str(e)[:200]}")
             time.sleep(PAUSE * 3)
+        except Exception as e:
+            errs += 1
+            log(f"ERR {ex_name} {sym} {tf}: {type(e).__name__}: {str(e)[:200]}")
+            time.sleep(PAUSE * 3)
+    if errs:
+        log(f"  cycle errors: {errs}/{done or 1} jobs failed (see above)")
     return total_new, done
 
 
@@ -208,6 +250,10 @@ def main() -> None:
     except OSError:
         log("another instance holds the lock; exiting")
         sys.exit(0)
+
+    # graceful shutdown: finish the current cycle, then exit cleanly
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
 
     once = '--once' in sys.argv
     log(f"collector daemon start (once={once}, venv={VENV_PY.exists()})")
@@ -224,13 +270,20 @@ def main() -> None:
         try:
             n, done = run_cycle(gate, jobs, cycle_count)
         except Exception as e:
-            log(f"cycle crashed (recovered): {str(e)[:120]}")
+            log(f"cycle crashed (recovered): {str(e)[:200]}")
             n, done = 0, 0
         cycle_count += 1
         elapsed = time.time() - cycle_start
         log(f"cycle #{cycle_count}: +{n} new bars over {done} jobs ({elapsed:.0f}s)")
+        if _SHUTDOWN:
+            log("shutdown flag set; exiting main loop")
+            break
         sleep_for = max(5, CYCLE_INTERVAL - elapsed)
-        time.sleep(sleep_for)
+        # interruptible sleep: wake to check shutdown promptly
+        slept = 0.0
+        while slept < sleep_for and not _SHUTDOWN:
+            time.sleep(min(5.0, sleep_for - slept))
+            slept += 5.0
 
 
 if __name__ == "__main__":

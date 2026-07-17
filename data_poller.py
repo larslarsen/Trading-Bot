@@ -35,6 +35,7 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent))
 
 import pandas as pd
+import reliability as rel
 import dex_micro_poller as micro
 import backfill_cex_all as cex
 import derive_cex_tf as derive
@@ -54,12 +55,15 @@ def load_state():
         try:
             return json.loads(STATE.read_text())
         except Exception:
-            pass
+            # corrupt state file -> start fresh rather than crash the poller
+            print(f"  [state] corrupt .poller_state.json; resetting", flush=True)
     return {"cex_cursor": 0, "last_universe": 0.0}
 
 
 def save_state(s):
-    STATE.write_text(json.dumps(s, indent=2))
+    # atomic: a kill mid-write cannot leave a half-written state file that
+    # load_state would then choke on next start.
+    rel.atomic_write_json(STATE, s)
 
 
 def cex_5m_path(sym):
@@ -128,13 +132,14 @@ def micro_worker(once):
                     if p.exists():
                         old = pd.read_csv(p, parse_dates=["ts"])
                         df = pd.concat([old, df]).drop_duplicates(subset=["ts"]).sort_values("ts")
-                    df.to_csv(p, index=False)
+                    rel.atomic_write_csv(p, df, index=False)  # crash-safe append
                     done += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    # log the offending token so a bad one is visible, not swallowed
+                    print(f"  [micro] {tok} error: {type(e).__name__}: {e}", flush=True)
             print(f"  [micro] updated {done}/{len(toks)} tokens", flush=True)
         except Exception as e:
-            print(f"  [micro] error: {e}", flush=True)
+            print(f"  [micro] error: {type(e).__name__}: {e}", flush=True)
         if once:
             return
         time.sleep(MICRO_INTERVAL)
@@ -310,14 +315,15 @@ def onchain_topup_worker(once):
                             f = bon.daily_features(chain, d)
                             if f:
                                 rows.append(f)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            # log the specific day so a bad fetch is visible
+                            print(f"  [onchain {chain}] {d} error: {type(e).__name__}: {e}", flush=True)
                     if rows:
                         out = pd.DataFrame(rows).set_index("date").sort_index()
                         if tgt.exists():
                             o = pd.read_csv(tgt).set_index("date")
                             out = pd.concat([o, out]).drop_duplicates()
-                        out.to_csv(tgt)
+                        rel.atomic_write_csv(tgt, out)
                         print(f"  [onchain {chain}] +{len(out)} days", flush=True)
                 except Exception as e:
                     print(f"  [onchain {chain}] err {e!r}"[:160], flush=True)

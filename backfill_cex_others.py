@@ -30,18 +30,24 @@ UA = {"User-Agent": "Mozilla/5.0 (research backfill)"}
 
 
 def fetch_json(url, timeout=30, tries=4):
+    """GET `url` via curl with retry + exponential backoff + FULL jitter.
+
+    Jitter decorrelates callers so a batch of workers retrying against the same
+    429/503 wall does NOT synchronize into a retry storm (the July-9 wedge).
+    """
+    import random
     for i in range(tries):
         try:
             out = subprocess.run(["curl", "-s", "--max-time", str(timeout),
                                   "-A", UA["User-Agent"], url],
                                  capture_output=True, text=True, timeout=timeout + 5)
             if out.returncode != 0:
-                time.sleep(min(2 ** i * 2, 30)); continue
+                time.sleep(min(2 ** i * 2, 30) * (1 + random.uniform(-0.3, 0.3))); continue
             if not out.stdout.strip():
-                time.sleep(min(2 ** i * 2, 30)); continue
+                time.sleep(min(2 ** i * 2, 30) * (1 + random.uniform(-0.3, 0.3))); continue
             return json.loads(out.stdout), None
         except subprocess.TimeoutExpired:
-            time.sleep(min(2 ** i * 5, 30)); continue
+            time.sleep(min(2 ** i * 5, 30) * (1 + random.uniform(-0.3, 0.3))); continue
         except Exception as e:
             return None, str(e)[:120]
     return None, "exhausted retries"

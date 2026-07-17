@@ -46,9 +46,8 @@ def _detect_physical_cores() -> int:
 
 LOGICAL_CORES = _detect_logical_cores()
 PHYSICAL_CORES = int(os.environ.get("TRADING_BOT_CORES") or _detect_physical_cores())
-# Leave headroom for cooling: NH-U9S on Ryzen 5600X hits ~94-96C at 5 threads
-# (underperforming mount). Cap at 3 to stay off the 95C throttle ceiling.
-N_JOBS = max(1, min(PHYSICAL_CORES - 1, 3))
+# Leave one physical core free for the OS + collector daemon.
+N_JOBS = max(1, PHYSICAL_CORES - 1)
 # Pure-CPU worker count (walk-forward replays, etc.): leave ONE thread free for
 # the system + control code, so n-1 of logical.
 N_WORKERS_CPU = max(1, LOGICAL_CORES - 1)

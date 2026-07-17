@@ -1,0 +1,48 @@
+# Trading-bot dependency manifest.
+#
+# This repo had NO requirements.txt / pyproject.toml — the .venv was the only
+# record, and it carried ~175 packages (ipython, jupyter, plotly, sqlalchemy,
+# websockets, sqlalchemy, aiohttp, ...). The audit (scan of every active .py,
+# excluding archive/ and __pycache__) found that most of those are NEVER
+# imported by active code. This file lists ONLY what active code actually
+# imports, pinned to the versions already proven working in the venv.
+#
+# Sections:
+#   [runtime]      required by the always-on daemons + core pipeline + cron jobs
+#   [analysis]     backtesting / research scripts (not needed by the daemons)
+#   [optional]     only needed by ONE specific script (named in the comment)
+#   [dev]          test runner
+#
+# To rebuild a minimal env:  pip install -r requirements.txt
+# To also run the optional/analysis scripts, install those sections too.
+
+# ── runtime (daemons + pipeline + cron) ─────────────────────────────────────
+numpy==2.4.6
+pandas==3.0.3
+ccxt==4.5.64
+xgboost==3.3.0
+scikit-learn==1.9.0
+scipy==1.18.0
+requests==2.34.2
+
+# ── analysis / backtest (screening + research scripts) ──────────────────────
+vectorbt==1.1.0
+statsmodels==0.14.6
+matplotlib==3.11.0
+
+# ── optional (single-script deps; skip unless you run that script) ──────────
+lightgbm==4.6.0          # model_search.py (hyperparam search, not in cron)
+catboost==1.2.10         # model_search.py
+optuna==4.9.0            # model_search.py
+hmmlearn==0.3.3          # engine.py optional HMM regime path (ImportError-guarded)
+pyarrow==24.0.0          # backfill_onchain.py (parquet read)
+gdown==6.1.0             # backfill_kraken_hist.py (Google Drive download)
+yfinance==1.5.1          # equities_collector.py
+fastapi==0.139.0         # serve_ml_xgb_legacy.py (legacy model server)
+uvicorn==0.51.0          # serve_ml_xgb_legacy.py
+pydantic==2.13.4         # serve_ml_xgb_legacy.py
+joblib==1.5.3            # serve_ml_xgb_legacy.py
+
+# ── dev ────────────────────────────────────────────────────────────────────
+pytest==9.1.1
+pytest-cov==7.1.0

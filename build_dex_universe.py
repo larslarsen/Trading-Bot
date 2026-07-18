@@ -115,15 +115,81 @@ def build(networks, top_per_network, sleep):
     return df
 
 
+def discover_and_merge(top_n=80, existing=None):
+    """Expand the universe beyond the volume-ranked 200 by merging in TRENDING
+    and NEW-PAIR DEX tokens discovered from DexScreener + GeckoTerminal + GMGN
+    (best-effort). Each discovered token is resolved to its real chain/pool via
+    the same resolver the equities seed uses, then appended to dex_universe.csv
+    (deduped on (network, symbol)). Best-effort: any failure is skipped, the
+    weekly rebuild never breaks.
+
+    Returns the number of NEW tokens added.
+    """
+    try:
+        import data_quality as dq
+        import dex_micro_poller as mpol
+    except Exception as e:
+        print(f"  [discover] import ERR: {e!r}")
+        return 0
+    try:
+        toks = dq.discover_dex_tokens() or []
+    except Exception as e:
+        print(f"  [discover] discovery ERR: {e!r}")
+        return 0
+    if not toks:
+        print("  [discover] no tokens discovered (sources gated/offline)")
+        return 0
+    existing = set(existing or [])
+    added = 0
+    new_rows = []
+    for t in toks:
+        sym = (t.get("symbol") or "").upper()
+        if not sym or sym in existing or sym in STABLES:
+            continue
+        try:
+            res = mpol.resolve_address(sym)
+            if not res:
+                continue
+            chain, addr = res
+            new_rows.append({"symbol": sym, "network": chain,
+                             "pool_address": addr, "quote": "USDC", "vol24h": 0.0})
+            existing.add(sym)
+            added += 1
+            if added >= top_n:
+                break
+        except Exception:
+            continue
+    if new_rows:
+        df_new = pd.DataFrame(new_rows)
+        if OUT.exists():
+            df_old = pd.read_csv(OUT)
+            df = pd.concat([df_old, df_new], ignore_index=True)
+        else:
+            df = df_new
+        # keep first occurrence of each (network, symbol)
+        df = df.drop_duplicates(subset=["network", "symbol"], keep="first")
+        df.to_csv(OUT, index=False)
+        print(f"  [discover] +{added} trending/new tokens merged -> {OUT} "
+              f"(now {len(df)} total)")
+    else:
+        print("  [discover] no new tokens to add")
+    return added
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--top-per-network", type=int, default=500)
     ap.add_argument("--networks", default="eth,base,bsc,arbitrum,polygon,solana,robinhood")
     ap.add_argument("--sleep", type=float, default=1.0)
+    ap.add_argument("--discover", type=int, default=0,
+                    help="after building, merge up to N trending/new DEX tokens "
+                         "from DexScreener+GeckoTerminal+GMGN")
     args = ap.parse_args()
     nets = [n.strip() for n in args.networks.split(",") if n.strip()]
     print(f"Building DEX universe from GeckoTerminal: networks={nets} top={args.top_per_network}/net")
     build(nets, args.top_per_network, args.sleep)
+    if args.discover:
+        discover_and_merge(top_n=args.discover)
 
 
 if __name__ == "__main__":

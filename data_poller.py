@@ -173,6 +173,19 @@ def universe_worker(s, once):
                 import build_dex_universe as bdu
                 bdu.build(networks=["eth", "base", "bsc", "arbitrum", "polygon", "solana"],
                           top_per_network=200, sleep=1.0)
+                # Merge in trending/new DEX tokens discovered from
+                # DexScreener+GeckoTerminal+GMGN (best-effort, expands the
+                # universe beyond the volume-ranked 200). Pass the current
+                # symbols so we only resolve + add genuinely new ones.
+                try:
+                    import pandas as pd
+                    known = set()
+                    if bdu.OUT.exists():
+                        known = set(pd.read_csv(bdu.OUT)["symbol"].astype(str)
+                                    .str.upper().tolist())
+                    bdu.discover_and_merge(top_n=80, existing=known)
+                except Exception as e:
+                    print(f"  [universe] discover error: {e}", flush=True)
                 try:
                     import backfill_dex_history as bdh
                     bdh.main()

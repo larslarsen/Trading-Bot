@@ -22,10 +22,11 @@ Usage:
 import argparse
 import gc
 import json
+import signal
 import sys
 import time
 import warnings
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from functools import lru_cache
 from pathlib import Path
 
@@ -36,6 +37,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 
+from config import CONFIG
 from pipeline import (
     fetch_data, add_resampled_features, load_macro_data, add_macro_signals,
     derive_features, detect_regime, ALL_FEATURES, MULTI_ASSET_FILE, USE_MULTI_ASSET,
@@ -94,14 +96,39 @@ POLL_SEC = 300
 STATE_FILE = REPO / "execution_state_ml_multi.json"
 JOURNAL_FILE = REPO / "trade_journal_ml_multi.json"
 
-# How many pairs to hold at once (top-N by signal strength).
-MAX_POSITIONS = 5
-# Minimum confidence to take a directional (LONG/SHORT) signal.
+# Screener / sizing now sourced from config.CONFIG (single source of truth) so
+# the live trader and the backtest replay share identical risk parameters.
+# Defaults evaluate to the historical values: 5 positions, $2000 = 20% of $10k.
+MAX_POSITIONS = CONFIG.max_positions
+SIZE_USD = CONFIG.initial_capital * CONFIG.max_position_pct
+# Minimum confidence to take a directional (LONG/SHORT) signal. Trader-specific
+# gate; kept here with the live-trader knobs.
 CONFIDENCE_THRESHOLD = 0.60
-# Fee profile (mirrors paper_trader.py)
 FEE_BP = 0.60
 SLIPPAGE_BP = 5
-SIZE_USD = 2000.0
+
+# ── graceful shutdown ───────────────────────────────────────────────────────
+_SHUTDOWN = False
+
+def _on_signal(signum, frame):
+    global _SHUTDOWN
+    _SHUTDOWN = True
+    print(f"[{datetime.now(timezone.utc).isoformat()}] received "
+          f"{signal.Signals(signum).name}; finishing cycle then saving state + exiting")
+
+# ── daily-bar cadence ───────────────────────────────────────────────────────
+# Circuit breakers (daily loss, flash-crash) are reset/rolled by
+# start_daily_bar(), which the live loop MUST call once per UTC day. Without it
+# the "daily" loss limit is cumulative (halts permanently after any 3% DD) and
+# the flash-crash window never populates. Call it on day rollover only.
+_last_daily_day: list = [None]
+
+def _maybe_start_daily_bar(state, ref_price):
+    today = date.today()  # local date is fine; rollover granularity is what matters
+    if _last_daily_day[0] != today:
+        if ref_price and ref_price > 0:
+            state.start_daily_bar(ref_price)
+        _last_daily_day[0] = today
 
 # ── model auto-discovery + screener ────────────────────────────────────────
 def discover_models():
@@ -345,6 +372,11 @@ def run_once(models, state):
     # The between-cycle guard only checks between cycles, so it can't catch a
     # single-cycle allocation spike -- that's exactly what OOM-killed us.
     mem_guard_abort(4096)
+    # Roll the daily risk window ONCE per UTC day so the daily-loss limit resets
+    # and the flash-crash window populates. Without this the breakers are dead.
+    ref_pair = "BTCUSDT" if "BTCUSDT" in models else next(iter(models), None)
+    ref_price = price_for(ref_pair) if ref_pair else None
+    _maybe_start_daily_bar(state, ref_price)
     # 1) gather ranked signals
     ranked = []
     for pair, model in models.items():
@@ -414,7 +446,11 @@ def main():
     if not models:
         print("[ml_multi] no models loaded, exiting")
         return
-    state = MultiPositionState(initial_capital=10000.0, state_file=STATE_FILE, journal_file=JOURNAL_FILE)
+    # register graceful-shutdown handlers (systemd Stop sends SIGTERM)
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
+    state = MultiPositionState(initial_capital=CONFIG.initial_capital,
+                                state_file=STATE_FILE, journal_file=JOURNAL_FILE)
     discovered = discover_models()
     active = active_pairs()
     print(f"[ml_multi] discovered models: {sorted(discovered.keys())}")
@@ -424,6 +460,9 @@ def main():
         run_once(models, state)
         return
     while True:
+        if _SHUTDOWN:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] shutdown requested; saving state + exiting")
+            break
         # Memory throttle: if RSS is climbing, skip the heavy build this cycle
         # (log + reclaim + extra cooldown) instead of risking an OOM kill.
         rss = rss_mb()
@@ -438,7 +477,13 @@ def main():
         except Exception as e:
             print(f"[{datetime.now(timezone.utc).isoformat()}] error: {e}")
         gc.collect()
-        time.sleep(POLL_SEC)
+        # interruptible sleep so a stop is honored promptly
+        slept = 0.0
+        while slept < POLL_SEC and not _SHUTDOWN:
+            time.sleep(min(5.0, POLL_SEC - slept))
+            slept += 5.0
+    state.save()
+    print(f"[{datetime.now(timezone.utc).isoformat()}] exited cleanly")
 
 
 if __name__ == "__main__":

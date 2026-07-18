@@ -57,12 +57,21 @@ class MultiPositionState(PortfolioEngine):
         # `with` closes lockf on exit -> no fd leak across many save() calls.
 
     def _log_trade(self, trade):
+        # Atomic + locked append so a crash mid-write cannot corrupt the journal
+        # (same crash-safety discipline as save()). Reads the full list (trade
+        # counts/day are bounded) then writes a tmp file + os.replace.
         if self._journal_file.exists():
-            journal = json.loads(self._journal_file.read_text())
+            try:
+                journal = json.loads(self._journal_file.read_text())
+            except Exception:
+                journal = []
         else:
             journal = []
         journal.append(trade)
-        self._journal_file.write_text(json.dumps(journal, indent=2))
+        tmp = self._journal_file.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
+            json.dump(journal, f, indent=2)
+        tmp.replace(self._journal_file)
 
     # daily reset used by ops cron-style runs
     def reset_daily(self):

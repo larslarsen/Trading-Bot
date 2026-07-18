@@ -22,6 +22,7 @@ Design notes (fixes carried over from the old split):
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,7 +142,7 @@ class PortfolioEngine:
         if target <= 0:
             return None
         fill = fill_price * (1 + self.config.slippage_bps + self.config.cost_bps)
-        if fill <= 0:
+        if not isinstance(fill_price, (int, float)) or not math.isfinite(fill_price) or fill <= 0:
             return None
         shares = target / fill
         pos = Position(symbol, PositionSide.LONG, fill, shares)
@@ -282,6 +283,10 @@ class PortfolioEngine:
 
     # ---- serialization helpers (used by subclasses) -----------------------
     def to_state_dict(self) -> dict:
+        # NOTE: `trades` and `equity_history` are intentionally NOT persisted.
+        # They grow without bound (every fill / every MTM) and the trade journal
+        # already records fills separately; serializing them into the state file
+        # makes it grow forever and slows every load/save. Keep them in-memory.
         return {
             "cash": self.cash,
             "equity": self.equity,
@@ -290,9 +295,7 @@ class PortfolioEngine:
             "halted": self.halted,
             "halt_reason": self.halt_reason,
             "positions": {k: v.to_dict() for k, v in self.positions.items()},
-            "trades": self.trades,
             "max_dd": self.max_dd,
-            "equity_history": self.equity_history,
         }
 
     def load_state_dict(self, data: dict):

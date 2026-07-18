@@ -129,6 +129,10 @@ def test_state_roundtrip_preserves_cash_and_equity():
     eng.start_daily_bar(100.0)
     eng.open_position('AAA', 100.0, eng.equity * 0.20)
     d = eng.to_state_dict()
+    # regression: unbounded `trades` / `equity_history` must NOT be persisted
+    # (they grow forever; the journal records trades separately).
+    assert "trades" not in d
+    assert "equity_history" not in d
     eng2 = make_engine()
     eng2.load_state_dict(d)
     assert eng2.cash == pytest.approx(eng.cash, rel=1e-9)
@@ -153,6 +157,16 @@ def test_open_blocked_when_halted():
     eng.halted_reason = "max_drawdown"
     assert eng.open_position('AAA', 100.0, 2000.0) is None
     assert eng.positions == {}
+
+
+def test_open_rejects_nonfinite_fill_price():
+    eng = make_engine()
+    # NaN/inf fill must be rejected (never produce a NaN-share position that
+    # would poison equity / state). Regression for the malformed-bar NaN bug.
+    assert eng.open_position('NaN', float('nan'), 2000.0) is None
+    assert eng.open_position('Inf', float('inf'), 2000.0) is None
+    assert eng.open_position('Neg', -1.0, 2000.0) is None
+    assert len(eng.positions) == 0
 
 
 def test_open_blocked_when_target_nonpositive():

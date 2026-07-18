@@ -56,7 +56,19 @@ def test_resolve_drops_extra_columns():
     assert set(out.columns) >= set(cf.CANONICAL)
 
 
-def test_resolve_preserves_ohlcv():
+def test_resolve_no_duplicate_columns():
+    # when the input carries OHLCV (which are also inside CANONICAL), resolve
+    # must NOT emit duplicate column labels (regression: raw_keep + CANONICAL
+    # used to double up close/open/etc).
+    df = pd.DataFrame({c: np.arange(10.0) for c in cf.CANONICAL})
+    df["open"] = np.linspace(1, 2, 10)
+    df["high"] = np.linspace(2, 3, 10)
+    df["low"] = np.linspace(0, 1, 10)
+    df["close"] = np.linspace(3, 4, 10)
+    df["volume"] = np.linspace(5, 6, 10)
+    out, _ = cf.resolve(df)
+    cols = list(out.columns)
+    assert len(cols) == len(set(cols)), f"duplicate columns: {cols}"
     # serving path: df carries OHLCV -> resolve keeps them and prepends the
     # canonical block after the raw-keep columns
     df = pd.DataFrame({c: np.arange(10.0) for c in cf.CANONICAL})

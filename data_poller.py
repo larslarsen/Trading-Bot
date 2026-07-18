@@ -42,6 +42,10 @@ import derive_cex_tf as derive
 
 REPO = Path(__file__).parent
 STATE = REPO / "data" / ".poller_state.json"
+# Guards the shared `s` dict (cex_cursor / last_universe) mutated + persisted by
+# multiple worker threads. Without it, concurrent writes interleave and one
+# worker's update can be clobbered by another's save_state().
+_STATE_LOCK = threading.Lock()
 
 MICRO_INTERVAL = 600        # DEX breadth poll every 10 min
 DEX_FWD_INTERVAL = 300      # DEX 5m forward snap every 5 min
@@ -109,7 +113,8 @@ def cex_worker(s, once):
             except Exception as e:
                 print(f"  [cex {sym}] error: {e}", flush=True)
         s["cex_cursor"] = end % n
-        save_state(s)
+        with _STATE_LOCK:
+            save_state(s)
         print(f"  [cex] cursor -> {s['cex_cursor']}/{n}", flush=True)
         if once:
             return
@@ -174,7 +179,8 @@ def universe_worker(s, once):
                 except Exception as e:
                     print(f"  [universe] history error: {e}", flush=True)
                 s["last_universe"] = now
-                save_state(s)
+                with _STATE_LOCK:
+                    save_state(s)
                 print("  [universe] rebuilt", flush=True)
             except Exception as e:
                 print(f"  [universe] error: {e}", flush=True)
@@ -218,9 +224,12 @@ def cex_extra_topup_worker(once):
                             # pages directly to tgt; returns (result, err).
                             _, err = bco.bybit_klines(sym, start, tgt)
                         elif venue == "okx":
-                            # okx_klines(sym, after_ms, tgt, limit) appends to tgt.
-                            _, err = bco.okx_klines(sym.replace("-", ""),
-                                                    int(time.time() * 1000), tgt)
+                            # okx_klines(sym, after_ms, tgt, limit) walks BACKWARD
+                            # from now until oldest <= after_ms. Pass the cursor
+                            # (last+1) as after_ms so it backfills from the cursor
+                            # to now. Passing `int(time.time()*1000)` (now) made it
+                            # a permanent no-op (oldest <= now immediately).
+                            _, err = bco.okx_klines(sym.replace("-", ""), start, tgt)
                         else:
                             # mexc_klines(sym, start_ms, end_ms=None) RETURNS rows.
                             rows, err = bfm.mexc_klines(sym, start)
@@ -245,7 +254,7 @@ def cex_extra_topup_worker(once):
                                 df = df[~df.index.duplicated(keep="last")]
                             else:
                                 df = df.set_index("ts")
-                            df.to_csv(tgt)
+                            rel.atomic_write_csv(tgt, df.reset_index(), index=False)
                         if err:
                             continue
                         if sym == syms[0]:
@@ -278,7 +287,7 @@ def cex_extra_topup_worker(once):
                     else:
                         df = df.set_index("ts")
                     df["interval_hours"] = 8
-                    df.to_csv(tgt)
+                    rel.atomic_write_csv(tgt, df.reset_index(), index=False)
                 except Exception as e:
                     print(f"  [funding {sym}] err {str(e)[:120]}", flush=True)
             print("  [extra] top-up pass done", flush=True)

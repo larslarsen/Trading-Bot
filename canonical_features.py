@@ -108,9 +108,11 @@ def resolve(df, built_features=None):
     """
     _RAW_KEEP = ["open", "high", "low", "close", "volume"]
     raw_keep = [c for c in _RAW_KEEP if c in df.columns]
+    # raw_keep columns are also in CANONICAL, so de-duplicate to avoid duplicate
+    # column labels in the output frame (which breaks .loc/concat downstream).
     present = [c for c in CANONICAL if c in df.columns]
     missing = [c for c in CANONICAL if c not in df.columns]
-    cols = raw_keep + present
+    cols = raw_keep + [c for c in present if c not in raw_keep]
     out = df[cols].copy()
     if missing:
         for c in missing:

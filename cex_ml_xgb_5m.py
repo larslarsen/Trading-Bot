@@ -22,6 +22,7 @@ Usage:
 import argparse
 import gc
 import json
+import math
 import signal
 import sys
 import time
@@ -29,6 +30,7 @@ import warnings
 from datetime import datetime, timezone, date
 from functools import lru_cache
 from pathlib import Path
+import fcntl
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(Path(__file__).parent))
@@ -362,9 +364,21 @@ def predict_pair(model, fvec):
 
 
 def price_for(symbol):
-    """Last close for a pair from its 5m history."""
+    """Last close for a pair from its 5m history.
+
+    Returns None (never NaN) if the series is empty or the last close is
+    non-finite. A NaN close (the poller can append a malformed trailing bar)
+    must NOT be returned: the caller's `if not px or px <= 0` guard does not
+    catch NaN (NaN is truthy and NaN<=0 is False), so a NaN would slip through
+    into open_position -> NaN shares -> NaN equity -> corrupted state.
+    """
     df = _cached_fetch(fetch_symbol(symbol))
-    return float(df["close"].iloc[-1]) if not df.empty else None
+    if df is None or df.empty:
+        return None
+    last = df["close"].iloc[-1]
+    if not isinstance(last, (int, float)) or not math.isfinite(float(last)):
+        return None
+    return float(last)
 
 
 def run_once(models, state):
@@ -392,15 +406,20 @@ def run_once(models, state):
     print(f"[{datetime.now(timezone.utc).isoformat()}] ranked: " +
           ", ".join(f"{r['pair']}={r['signal']}({r['conf']:.2f})" for r in ranked))
 
-    # 2) decide desired book = top-N directional signals above threshold
-    desired = [r for r in ranked if r["signal"] != "FLAT" and r["conf"] >= CONFIDENCE_THRESHOLD][:MAX_POSITIONS]
+    # 2) decide desired book = top-N LONG signals above threshold.
+    # LONG-ONLY: the live strategy is long-only, so we only OPEN on a LONG
+    # prediction. A SHORT model output means "don't be long" -> it is excluded
+    # here (and any existing long in that pair gets closed by step 3). Opening
+    # a SHORT prediction as a LONG (the prior behavior) is directionally wrong.
+    desired = [r for r in ranked
+               if r["signal"] == "LONG" and r["conf"] >= CONFIDENCE_THRESHOLD][:MAX_POSITIONS]
     desired_pairs = {r["pair"]: r for r in desired}
 
     # 3) close positions no longer desired / no longer signaled
     for sym in list(state.positions.keys()):
         if sym not in desired_pairs:
             px = price_for(sym)
-            if px:
+            if px and math.isfinite(px):
                 state.close_position(sym, px)
                 print(f"CLOSE {sym} @ {px:.6f} (not in top-{MAX_POSITIONS})")
 
@@ -412,7 +431,7 @@ def run_once(models, state):
         if len(state.positions) >= MAX_POSITIONS:
             break
         px = price_for(sym)
-        if not px or px <= 0:
+        if not (px and math.isfinite(px)) or px <= 0:
             continue
         ok, reason = state.check_circuit_breakers()
         if not ok:
@@ -442,6 +461,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true")
     args = ap.parse_args()
+    # Single-instance guard: the systemd service and a manual `--once` run must
+    # not both write execution_state_ml_multi.json / trade_journal_ml_multi.json
+    # concurrently (that corrupts state). Mirror the collector's flock pattern.
+    _lock_path = REPO / "run" / "ml_multi.lock"
+    _lock_path.parent.mkdir(parents=True, exist_ok=True)
+    _lockf = open(_lock_path, "w")
+    try:
+        fcntl.flock(_lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f"[ml_multi] another instance holds {_lock_path}; exiting")
+        sys.exit(0)
     models = load_models()
     if not models:
         print("[ml_multi] no models loaded, exiting")

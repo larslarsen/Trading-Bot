@@ -221,7 +221,15 @@ class PortfolioEngine:
                 self._flash_window.pop(0)
 
     def check_circuit_breakers(self):
-        """Returns (ok, reason). Halts the engine if a breaker trips."""
+        """Returns (ok, reason). Halts the engine if a breaker trips.
+
+        Requires start_daily_bar() to have been called at least once and then
+        once per day: it is the only thing that resets daily_pnl and rolls the
+        flash-crash window. The live trader satisfies this via
+        cex_ml_xgb_5m._maybe_start_daily_bar(); backtests call it once per
+        simulated day. Without it the daily-loss limit is cumulative and the
+        flash-crash window never populates.
+        """
         if self.halted:
             return False, f"HALTED: {self.halt_reason}"
 

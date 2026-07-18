@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from net_bypass import get as bg_get
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -38,7 +39,8 @@ RESOLVE_EVERY_S = 86400  # re-resolve pair addresses daily
 
 
 def _get(url, timeout=15, **kwargs):
-    r = requests.get(url, timeout=timeout, **kwargs)
+    # egress via local interface when BYPASS_VPN_IFACE is set (dodges VPN throttle)
+    r = bg_get(url, timeout=timeout, **kwargs)
     r.raise_for_status()
     return r.json()
 

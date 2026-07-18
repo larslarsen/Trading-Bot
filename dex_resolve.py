@@ -21,17 +21,12 @@ from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
 
+from net_bypass import session as _bypass_session
+
 REPO = Path(__file__).parent
 UA = {"User-Agent": "Mozilla/5.0 (research)"}
 DEX_API = "https://api.dexscreener.com/latest/dex"
 GT_API = "https://api.geckoterminal.com/api/v2"
-
-# Egress: the box's clean ISP IP (routes via enp6s0/192.168.1.1, off-VPN).
-# The azirevpn tunnel address (10.0.129.5) cannot source outbound requests,
-# so the VPN IP is NOT a usable second egress. Clean IP is unthrottled after
-# the policy-route change; that's what we use.
-CLEAN_SRC = "192.168.1.100"
-EGRESS_ORDER = [CLEAN_SRC]
 
 # DexScreener chainId -> GeckoTerminal network slug
 NETMAP = {
@@ -42,53 +37,40 @@ NETMAP = {
 # Chains we explicitly cannot pull from GeckoTerminal (tokenized stocks, etc.)
 EXCLUDE_CHAINS = ("robinhood",)
 
-
-class _BindAdapter(HTTPAdapter):
-    """Bind the local source address so traffic egresses a chosen interface."""
-    def __init__(self, source_address, *a, **k):
-        self._src = source_address
-        super().__init__(*a, **k)
-
-    def init_poolmanager(self, *a, **k):
-        k["source_address"] = self._src
-        super().init_poolmanager(*a, **k)
+# Egress bypass: net_bypass binds to the LOCAL interface (BYPASS_VPN_IFACE,
+# e.g. enp6s0 -> 73.220.x.x) via SO_BINDTODEVICE, dodging the throttled VPN
+# exit (37.46.x.x). This replaces the old IP-literal source_address bind
+# (192.168.1.100) which silently failed and fell back to the VPN. When
+# BYPASS_VPN_IFACE is unset, net_bypass falls back to the default route.
+# The `egress` param is accepted for API compat but the interface is chosen
+# by the env var; passing egress only narrows which net_bypass does.
 
 
-def _session(src):
-    s = requests.Session()
-    a = _BindAdapter(source_address=(src, 0))
-    s.mount("http://", a)
-    s.mount("https://", a)
+def _session():
+    s = _bypass_session(local=True)
+    s.headers.update(UA)
     return s
 
 
-_SESSIONS = {src: _session(src) for src in EGRESS_ORDER}
+_SESSION = _session()
 
 
 def fetch_json(url, params=None, timeout=20, tries=3, egress=None):
-    """GET url as JSON. Returns (dict, None) or (None, reason).
-
-    egress: a specific source IP to bind, or None to race both egresses
-    (clean first, VPN on 429). One attempt per egress per cycle, brief
-    backoff between cycles only -- so a fully-throttled token costs at most
-    tries*len(egress) quick requests, never a long per-IP stall."""
-    sources = [egress] if egress else EGRESS_ORDER
+    """GET url as JSON via the local-interface bypass. Returns (dict, None)
+    or (None, reason). On HTTP 429 (throttle) we retry up to `tries` times
+    with brief backoff; net_bypass already routes us off the throttled VPN IP."""
     last_err = "exhausted retries"
     for cyc in range(tries):
-        for src in sources:
-            s = _SESSIONS[src]
-            try:
-                r = s.get(url, params=params, headers=UA, timeout=timeout)
-                if r.status_code == 200:
-                    return r.json(), None
-                if r.status_code == 429:
-                    last_err = "HTTP 429"
-                    continue
+        try:
+            r = _SESSION.get(url, params=params, timeout=timeout)
+            if r.status_code == 200:
+                return r.json(), None
+            if r.status_code == 429:
+                last_err = "HTTP 429"
+            else:
                 last_err = f"HTTP {r.status_code}"
-                continue
-            except Exception as e:
-                last_err = f"err:{e}"
-                continue
+        except Exception as e:
+            last_err = f"err:{e}"
         if cyc < tries - 1:
             time.sleep(min(2 ** cyc * 2, 10))
     return None, last_err

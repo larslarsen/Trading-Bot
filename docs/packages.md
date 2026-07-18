@@ -17,7 +17,7 @@ trading-bot/
 ├── dex_ohlcv_sampler.py       DEX live sampler (systemd: trading-bot-dex-sampler)
 ├── backfill_dex_history_gt.py DEX history backfill (systemd: trading-bot-dex-backfill)
 ├── pipeline.py                shared feature/label/walk-forward builder
-├── canonical_features.py      frozen 98-feature contract
+├── canonical_features.py      frozen 113-feature contract
 ├── model_trainer.py           per-pair model train + save
 ├── quality_gate.py            universe liquidity/data gating
 ├── portfolio_engine.py        risk engine (positions, cash, MTM, breakers)

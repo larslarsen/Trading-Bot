@@ -6,7 +6,7 @@
   build the exact feature block used for both training and live inference. If
   you change a feature, change it in `pipeline`/`canonical_features` — never
   fork it in the trader.
-- **The 98-feature contract is sacred.** `canonical_features.CANONICAL` is the
+- **The 113-feature contract is sacred.** `canonical_features.CANONICAL` is the
   input dimension every model expects. Edit it ⇒ retrain everything.
 - **Risk lives in one engine.** `portfolio_engine.PortfolioEngine` is used by
   both live and backtest replay. Don't special-case risk in the trader.

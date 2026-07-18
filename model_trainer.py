@@ -123,7 +123,7 @@ def build_symbol_features(symbol):
     df = df.loc[:, ~df.columns.duplicated()]
     df = df.sort_index()
     df = detect_regime(df)
-    # CANONICAL: present exactly the frozen, shared 98-feature block (symbol
+    # CANONICAL: present exactly the frozen, shared 113-feature block (symbol
     # agnostic base + locked BTC/ETH/DOGE cross-asset). Zero-fills any optional
     # column a pair lacks so every pair trains/serves on IDENTICAL dimensions.
     from canonical_features import resolve

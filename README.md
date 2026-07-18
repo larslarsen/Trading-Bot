@@ -2,7 +2,7 @@
 
 Multi-pair 5-minute ML paper-trading system for crypto (CEX + DEX). It
 collects OHLCV forward continuously, trains per-pair XGBoost directional
-models (long / short / flat) on a single canonical 98-feature block, and runs
+models (long / short / flat) on a single canonical 113-feature block, and runs
 a live "rank-the-signals" paper trader that holds the top-N strongest
 directional bets through a shared, backtest-identical risk engine.
 
@@ -40,7 +40,7 @@ collector_daemon.py     forward OHLCV collector (MEXC + BloFin), incremental
 data_poller.py          unified data poller (CEX 5m + DEX micro/forward/universe)
 cex_ml_xgb_5m.py        LIVE ML paper trader (ranks models, holds top-N)
 pipeline.py             feature build + labels + walk-forward (shared by train+serve)
-canonical_features.py    the frozen 98-feature contract (trainer + server agree)
+canonical_features.py    the frozen 113-feature contract (trainer + server agree)
 portfolio_engine.py     risk engine: positions, cash, MTM, circuit breakers
 order_manager_multi.py  live state persistence + trade journal (atomic)
 config.py               EngineConfig + core-count detection (single source of truth)

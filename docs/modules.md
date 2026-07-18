@@ -43,11 +43,11 @@ serving (so the served input matches the trained input). Key exports:
 `derive_features`, `detect_regime`, `triple_barrier_labels`,
 `walk_forward_splits`, `cost_aware_filter`, `ALL_FEATURES`. The 5m screener's
 feature set (temporals, technicals, cross-asset, micro, DEX, regime) is
-defined here; `canonical_features.resolve` then freezes it to 98 columns.
+defined here; `canonical_features.resolve` then freezes it to 113 columns.
 
 ### `canonical_features.py`
-Freezes the 98-feature contract (`CANONICAL`, `N_FEATURES`, `CROSS_ASSETS`).
-`resolve(df, features)` guarantees every pair emits exactly those 98 columns in
+Freezes the 113-feature contract (`CANONICAL`, `N_FEATURES`, `CROSS_ASSETS`).
+`resolve(df, features)` guarantees every pair emits exactly those 113 columns in
 the same order — missing columns zero-filled, extras dropped. This is what
 makes one serving block valid for all trained models. **Editing `CANONICAL`
 requires retraining every model.**

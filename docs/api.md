@@ -1,7 +1,7 @@
 # API Documentation
 
 Public API surface of the production modules. Signatures are the contract —
-changing them (or the 98-feature block in `canonical_features`) requires
+changing them (or the 113-feature block in `canonical_features`) requires
 retraining models and/or updating callers.
 
 ## `pipeline`
@@ -38,7 +38,7 @@ ALL_FEATURES : tuple[str, ...]   # raw candidate feature names
 ## `canonical_features`
 
 ```python
-CANONICAL : list[str]        # the frozen 98-feature contract
+CANONICAL : list[str]        # the frozen 113-feature contract
 N_FEATURES : int             # == len(CANONICAL)
 CROSS_ASSETS : list[str]     # ["ETHUSDT", "DOGEUSDT"] (locked)
 

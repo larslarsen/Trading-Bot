@@ -8,7 +8,7 @@ directional crypto signals and trades the strongest ones in a simulated
 
 1. **Collect** — append new bars forward, forever, so lookback never runs out.
 2. **Train / serve** — per-pair XGBoost models predict LONG / SHORT / FLAT on a
-   shared 98-feature block; the live bot ranks all pairs and holds the top-N.
+   shared 113-feature block; the live bot ranks all pairs and holds the top-N.
 3. **Risk** — a single `PortfolioEngine` enforces sizing, drawdown, daily-loss,
    flash-crash and equity-floor breakers identically in live and backtest.
 
@@ -38,10 +38,10 @@ and DEX paper trader (paused).
    data_poller.py     ──► data/cex/<SYM>_5m.csv, data/dex_micro/, data/*_5m_max.csv
                 │
                 ▼
-   model_trainer.build_symbol_features(sym)  ── reads CSV, builds 98-feature frame
+   model_trainer.build_symbol_features(sym)  ── reads CSV, builds 113-feature frame
                 │
                 ▼
-   canonical_features.resolve(df)  ── freezes exactly the 98-feature block (order matters)
+   canonical_features.resolve(df)  ── freezes exactly the 113-feature block (order matters)
                 │
                 ▼
    XGBoost model  ──► models/<sym>_xgb.json   (BTC alias: latest_xgb.json)
@@ -61,12 +61,12 @@ and DEX paper trader (paused).
 
 ## 4. The canonical-feature contract (why it exists)
 
-`canonical_features.py` freezes **one** 98-column feature list shared by the
+`canonical_features.py` freezes **one** 113-column feature list shared by the
 trainer and the serving bot. Three models (BTC/ETH/DOGE) were historically
 trained with divergent code → 85/81/75 features → the server fed them a
 different block → silently flat/misaligned predictions. `resolve(df)` zeroes
 missing columns and drops extras so every pair presents the identical
-98-dim input in the same order. **Changing `CANONICAL` changes the model input
+113-dim input in the same order. **Changing `CANONICAL` changes the model input
 dimension — you must retrain all models afterward.**
 
 ## 5. Critical runtime invariants

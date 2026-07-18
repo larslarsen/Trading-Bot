@@ -15,15 +15,15 @@ Two real bugs caused the divergence:
      oc_eth_chain_* for ETH, none for DOGE) -> the name set differs per pair,
      so no shared list is possible.
 
-This module freezes ONE canonical list (98 names) shared by trainer + serving:
+This module freezes ONE canonical list (113 names) shared by trainer + serving:
   * symbol-agnostic base features (5m/1h/4h technicals, macro, micro, dex, regime)
   * cross-asset block LOCKED to BTC/ETH/DOGE (24 names), generated deterministically
   * symbol-specific oc_*_chain features EXCLUDED
   * duplicates removed
 
-resolve(df) guarantees every pair presents exactly these 98 columns in the same
+resolve(df) guarantees every pair presents exactly these 113 columns in the same
 order: missing columns are zero-filled, extra columns dropped. So retraining all
-three pairs on resolve() output yields byte-compatible 98-dim models.
+three pairs on resolve() output yields byte-compatible 113-dim models.
 """
 import re
 from pathlib import Path
@@ -100,7 +100,7 @@ def resolve(df, built_features=None):
                       selection (we use CANONICAL) but kept for call compat.
 
     Any CANONICAL column missing from df is zero-filled (so a pair lacking an
-    optional feed still presents 98 dims). Columns not in CANONICAL are dropped
+    optional feed still presents 113 dims). Columns not in CANONICAL are dropped
     EXCEPT the raw OHLCV needed by downstream labeling (triple_barrier_labels)
     and the index, which are preserved so training can label before slicing to
     CANONICAL. Residual NaN rows (leading-window rolling features) are dropped.

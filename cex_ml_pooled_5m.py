@@ -9,8 +9,10 @@ pooled multi-asset model we trained on that exact screened set
 
 This is deliberately SEPARATE from cex_ml_xgb_5m.py (the per-pair screener
 bot): the pooled model was trained on model_trainer.build_symbol_features
-(113-feature set), whereas the per-pair bot uses the canonical 98-feature
-block. Different feature pipeline -> different model -> different daemon.
+(113-feature set), whereas the per-pair bot ALSO uses the same 113-feature
+canonical block (model_trainer.build_symbol_features + canonical_features.resolve).
+Different pooling (single shared model vs per-pair) -> different daemon, but the
+feature dimension is identical.
 
 Screener == quality_gate.gated_universe() (the literature gate). NOT the
 xrank/Kraken or cex_multi_screen universes -- those are a different purpose.

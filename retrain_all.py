@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Retrain ALL screener models on the ONE canonical 98-feature set.
+"""Retrain ALL screener models on the ONE canonical 113-feature set.
 
 Run ONCE after the new CPU cooler is installed (or anytime). Each pair trains
 on an identical input dimension (canonical_features.CANONICAL) so the serving

@@ -9,7 +9,7 @@ literature-backed and verified.
 1. **One source of truth.** Risk → `config.py`. Features →
    `pipeline.py` + `canonical_features.py`. Execution math →
    `portfolio_engine.py`. Don't fork these into the trader or a script.
-2. **The 98-feature contract is load-bearing.** Changing
+2. **The 113-feature contract is load-bearing.** Changing
    `canonical_features.CANONICAL` changes the model input dimension. If you
    change it, you MUST retrain every model (`retrain_all.py`) and say so in the
    PR.

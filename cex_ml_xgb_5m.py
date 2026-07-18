@@ -320,7 +320,7 @@ def build_features(symbol):
         for cand in extra:
             if cand in df.columns:
                 features.append(cand)
-        # CANONICAL: present exactly the frozen, shared 98-feature block so the
+        # CANONICAL: present exactly the frozen, shared 113-feature block so the
         # serving input matches what the retrained models expect (identical
         # dims + order). Zero-fills optional columns a pair lacks.
         from canonical_features import resolve

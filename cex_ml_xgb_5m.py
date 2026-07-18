@@ -80,11 +80,23 @@ def _cached_fetch(symbol):
     if key in _FETCH_CACHE and _FETCH_CACHE[key][0] == mtime:
         return _FETCH_CACHE[key][1]
     df = fetch_data(symbol)
+    # Cap the persistent cache to a rolling window: the model only needs recent
+    # history, and holding every full CSV per pair is what OOM-killed us.
+    if len(df) > MAX_BARS:
+        df = df.iloc[-MAX_BARS:]
     _FETCH_CACHE[key] = (mtime, df)
     return df
 
 # Live daemon: THROTTLE (skip a pass), never hard-exit, so trading keeps running.
 MEM_GUARD_MB = 6144  # above this RSS, skip the heavy feature build for one cycle
+
+# Rolling window retained per symbol. The model only predicts on the latest
+# bar's feature vector; indicators (resampled 1h/4h, MAs, regime) need history
+# but ~5000 5m bars (~17d) is far more than enough. Capping BOTH caches to this
+# window bounds persistent RSS to ~32 * 5000 * ~120 cols (~150 MB) instead of
+# holding every full CSV + full resolved frame per pair (which OOM-killed us
+# at 8 GB RAM + 7.6 GB swap every cycle).
+MAX_BARS = 5000
 
 REPO = Path(__file__).parent
 MODELS_DIR = REPO / "models"
@@ -327,6 +339,10 @@ def build_features(symbol):
         # dims + order). Zero-fills optional columns a pair lacks.
         from canonical_features import resolve
         df, features = resolve(df, features)
+        # Bound the cached resolved frame to the rolling window so memory stays
+        # flat across cycles (the full 517k-row frame per pair was the OOM cause).
+        if len(df) > MAX_BARS:
+            df = df.iloc[-MAX_BARS:]
         _SYM_CACHE[symbol] = {"bar_ts": bar_ts, "df": df, "features": features}
 
     df = _SYM_CACHE[symbol]["df"]

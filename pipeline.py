@@ -161,16 +161,16 @@ def fetch_data(symbol: str | None = None) -> pd.DataFrame:
                 f"No 5m history for {symbol}. Looked for: "
                 + ", ".join(str(c) for c in candidates))
     print(f"Loading {path}...")
-    df = pd.read_csv(path, parse_dates=["ts"])
-    # Drop rows with an empty/NaT timestamp. A malformed trailing row (no ts,
-    # e.g. a forward-collector/backfill artifact) would otherwise become the
-    # LAST index entry and get read as "the current price" by price_for() ->
-    # wrong-by-100x fills and garbage PnL. Keeping only well-formed bars is the
-    # single safeguard that makes the last bar trustworthy.
+    # Read ts as STRING and coerce explicitly. Letting pandas parse_dates
+    # "helpfully" turns a poison value like "8.0" into a float (not NaT), so
+    # the isna() guard below misses it and a later strptime crashes the whole
+    # worker thread -> process exit -> systemd restart loop. Coercing with
+    # errors="coerce" turns any non-timestamp into NaT, which we then drop.
+    df = pd.read_csv(path, dtype={"ts": str})
+    df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
     if df["ts"].isna().any():
         df = df[df["ts"].notna()]
-    df.set_index("ts", inplace=True)
-    df.index = pd.to_datetime(df.index, utc=True)
+    df = df.set_index("ts").sort_index()
     df = df[~df.index.isna()]
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
     return df

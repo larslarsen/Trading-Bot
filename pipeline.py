@@ -162,8 +162,16 @@ def fetch_data(symbol: str | None = None) -> pd.DataFrame:
                 + ", ".join(str(c) for c in candidates))
     print(f"Loading {path}...")
     df = pd.read_csv(path, parse_dates=["ts"])
+    # Drop rows with an empty/NaT timestamp. A malformed trailing row (no ts,
+    # e.g. a forward-collector/backfill artifact) would otherwise become the
+    # LAST index entry and get read as "the current price" by price_for() ->
+    # wrong-by-100x fills and garbage PnL. Keeping only well-formed bars is the
+    # single safeguard that makes the last bar trustworthy.
+    if df["ts"].isna().any():
+        df = df[df["ts"].notna()]
     df.set_index("ts", inplace=True)
     df.index = pd.to_datetime(df.index, utc=True)
+    df = df[~df.index.isna()]
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
     return df
 

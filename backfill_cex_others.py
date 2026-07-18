@@ -97,6 +97,7 @@ def okx_klines(symbol, after_ms, tgt, limit=100):
             d = pd.read_csv(tgt)
             if "ts" in d.columns and len(d):
                 d["ts"] = pd.to_datetime(d["ts"], utc=True)
+                d = d[d["ts"].notna()]
                 d = d.sort_values("ts").drop_duplicates("ts")
                 d.to_csv(tgt, index=False)
         except Exception:
@@ -147,11 +148,17 @@ def bybit_klines(symbol, start_ms, tgt, limit=1000):
     # Finalize: the API returns pages newest-first and we append, so the file
     # is left unsorted. Sort ascending + dedupe so downstream readers (the bot,
     # trainer) see the correct last bar instead of a stale appended row.
+    # CRITICAL: drop any NaT-timestamp rows first. A null/empty ts would be
+    # rewritten as an empty-timestamp row, and sort_values("ts") then parks it
+    # at the END of the file -> price_for() reads it as the current price
+    # (wrong by ~100x) and poisons every downstream PnL. Never persist a
+    # no-timestamp bar.
     if tgt.exists():
         try:
             d = pd.read_csv(tgt)
             if "ts" in d.columns and len(d):
                 d["ts"] = pd.to_datetime(d["ts"], utc=True)
+                d = d[d["ts"].notna()]
                 d = d.sort_values("ts").drop_duplicates("ts")
                 d.to_csv(tgt, index=False)
         except Exception:

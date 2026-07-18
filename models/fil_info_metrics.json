@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-07-18T05:17:38.242094+00:00",
+  "accuracy": 0.5891426282051282,
+  "features": 113,
+  "train_bars": 32985,
+  "test_bars": 14976,
+  "trees": 200,
+  "elapsed_sec": 14.7
+}

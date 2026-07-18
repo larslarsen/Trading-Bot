@@ -18,6 +18,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbols", default=None,
                     help="comma list; default = BTC + screener pairs")
+    ap.add_argument("--bar-type", default="time", choices=["time", "info"],
+                    help="time = standard 5m bars (default); info = Paper #2 "
+                         "volume/info bars (writes <sym>_info_xgb.json for A/B)")
     args = ap.parse_args()
     if args.symbols:
         syms = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -30,10 +33,11 @@ def main():
                 if line and not line.startswith("#"):
                     syms.append(line)
     syms = list(dict.fromkeys(syms))  # dedupe, keep order
-    print(f"[retrain_all] pairs={syms}  canonical_n_features={mt_canonical_n()}")
+    print(f"[retrain_all] pairs={syms} bar_type={args.bar_type} "
+          f"canonical_n_features={mt_canonical_n()}")
     for s in syms:
         print(f"\n=== {s} ===")
-        mt.train_and_save(symbol=s)
+        mt.train_and_save(symbol=s, bar_type=args.bar_type)
     print("\n[retrain_all] done.")
 
 def mt_canonical_n():

@@ -50,43 +50,66 @@ def _norm_sym(sym_tag: str) -> str:
     return sym_tag.upper().replace("/", "").replace("USDT", "")
 
 
-def model_out_path(sym_tag: str) -> Path:
+def model_out_path(sym_tag: str, bar_type: str = "time") -> Path:
     """Where to serialize a trained model.
 
-    BTC keeps models/latest_xgb.json (the path the serving bot consumes).
-    Any other symbol writes models/<sym>_xgb.json so it never clobbers BTC's
-    production model.
-    """
+    BTC keeps models/latest_xgb.json (the path the serving bot consumes) for
+    the default time-bar model. Any other symbol writes models/<sym>_xgb.json
+    so it never clobbers BTC's production model. Info-bar models get a
+    "_info" suffix so they sit beside (not over) the time-bar models for A/B."""
     sym_tag = _norm_sym(sym_tag)
+    suf = "_info" if bar_type == "info" else ""
     if sym_tag == "BTC":
-        return MODEL_DIR / "latest_xgb.json"
-    return MODEL_DIR / f"{sym_tag.lower()}_xgb.json"
+        return MODEL_DIR / f"latest{suf}_xgb.json"
+    return MODEL_DIR / f"{sym_tag.lower()}{suf}_xgb.json"
 
 
-def meta_out_path(sym_tag: str) -> Path:
+def meta_out_path(sym_tag: str, bar_type: str = "time") -> Path:
     """Training metadata path. Mirrors model_out_path: BTC -> latest_meta.json
     (serving bot), any other symbol -> <sym>_meta.json so a non-BTC train
-    never clobbers BTC's production metadata.
-    """
+    never clobbers BTC's production metadata. Info-bar gets "_info" suffix."""
     sym_tag = _norm_sym(sym_tag)
+    suf = "_info" if bar_type == "info" else ""
     if sym_tag == "BTC":
-        return MODEL_DIR / "latest_meta.json"
-    return MODEL_DIR / f"{sym_tag.lower()}_meta.json"
+        return MODEL_DIR / f"latest{suf}_meta.json"
+    return MODEL_DIR / f"{sym_tag.lower()}{suf}_meta.json"
 
 
-def metrics_out_path(sym_tag: str) -> Path:
+def metrics_out_path(sym_tag: str, bar_type: str = "time") -> Path:
     sym_tag = _norm_sym(sym_tag)
+    suf = "_info" if bar_type == "info" else ""
     if sym_tag == "BTC":
-        return MODEL_DIR / "latest_metrics.json"
-    return MODEL_DIR / f"{sym_tag.lower()}_metrics.json"
+        return MODEL_DIR / f"latest{suf}_metrics.json"
+    return MODEL_DIR / f"{sym_tag.lower()}{suf}_metrics.json"
 
 
-def build_symbol_features(symbol):
+def build_symbol_features(symbol, bar_type="time"):
     """Feature assembly for one CEX 5m pair, shared by per-pair + pooled
     trainers AND the serving bot. Returns (df_with_features, feature_list).
-    Mirror of the inlined build inside train_and_save -- keep in sync."""
+    Mirror of the inlined build inside train_and_save -- keep in sync.
+
+    bar_type:
+      "time" -> standard 5m time bars (default; what the serving bot uses)
+      "info" -> volume/info bars (Paper #2 edge: 0.601 vs 0.449). Bars are
+                rebuilt by cumulative-volume target before feature assembly,
+                so the canonical 113-feature block is computed on info bars.
+    """
     sym = symbol or "BTC"
     df = fetch_data(sym)
+    if bar_type == "info":
+        # reuse the Paper #2 info-bar builder (volume-targeted aggregation).
+        # info_bars groups by cumulative-volume and would DROP the timestamp
+        # index, so first promote the index to a 'ts' column it preserves
+        # (aggregated 'last' per group), then rebuild the datetime index.
+        from eval_paper2_v2 import info_bars
+        df = df.reset_index()
+        if "timestamp" in df.columns:
+            df = df.rename(columns={"timestamp": "ts"})
+        vol_target = max(1, int(df["volume"].cumsum().iloc[-1] / 60000))  # ~60000 info bars
+        df = info_bars(df, vol_target)
+        df = df.set_index("ts")
+        df.index.name = "timestamp"
+        df.index = pd.to_datetime(df.index, utc=True)
     # Harden against a transient poller in-place rewrite producing a
     # duplicated timestamp index: a non-unique index makes downstream
     # df.join() explode into a cartesian product (100s of GiB). Keep last.
@@ -131,17 +154,18 @@ def build_symbol_features(symbol):
     return df, features
 
 
-def train_and_save(symbol=None) -> bool | None:
+def train_and_save(symbol=None, bar_type: str = "time") -> bool | None:
     """Train on latest expanding window, save model JSON.
     `symbol` (default BTC) selects the 5m history file; non-BTC models are
     saved to models/<sym>_xgb.json so they never clobber BTC's latest_xgb.json
-    (which the serving bot consumes)."""
+    (which the serving bot consumes). `bar_type="info"` trains on Paper #2
+    volume/info bars and writes <sym>_info_xgb.json for A/B vs the time model."""
     t0 = time.time()
     sym_tag = _norm_sym(symbol or "BTC")
-    print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Train starting for {sym_tag}...")
+    print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}] Train starting for {sym_tag} (bar_type={bar_type})...")
 
     # Load data + features (shared with pooled trainer + serving bot)
-    df, features = build_symbol_features(symbol)
+    df, features = build_symbol_features(symbol, bar_type=bar_type)
     if df.empty:
         print(f"  No usable features for {sym_tag}, skipping")
         return None
@@ -218,12 +242,13 @@ def train_and_save(symbol=None) -> bool | None:
         'use_multi_asset': bool(USE_MULTI_ASSET),
         'elapsed_sec': round(time.time() - t0, 1),
     }
-    meta_path = meta_out_path(sym_tag)
+    meta_path = meta_out_path(sym_tag, bar_type)
     meta_path.write_text(json.dumps(meta, indent=2))
 
     # Save model — BTC default keeps latest_xgb.json (serving bot path);
     # any other symbol gets its own models/<sym>_xgb.json to avoid clobber.
-    out_path = model_out_path(sym_tag)
+    # Info-bar models get "_info" suffix (latest_info_xgb.json / <sym>_info_xgb.json).
+    out_path = model_out_path(sym_tag, bar_type)
     model.save_model(str(out_path))
     print(f"  Model saved: {out_path} ({out_path.stat().st_size/1024:.1f} KB)")
     print(f"  Meta saved: {meta_path}")
@@ -238,8 +263,8 @@ def train_and_save(symbol=None) -> bool | None:
         "trees": int(best),
         "elapsed_sec": meta['elapsed_sec'],
     }
-    metrics_out_path(sym_tag).write_text(json.dumps(metrics, indent=2))
-    print(f"  Metrics: {metrics_out_path(sym_tag)}")
+    metrics_out_path(sym_tag, bar_type).write_text(json.dumps(metrics, indent=2))
+    print(f"  Metrics: {metrics_out_path(sym_tag, bar_type)}")
     print(f"  Done in {metrics['elapsed_sec']:.1f}s")
     return True
 
@@ -247,5 +272,7 @@ def train_and_save(symbol=None) -> bool | None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="BTC", help="pair to train (default BTC). e.g. DOGE")
+    ap.add_argument("--bar-type", default="time", choices=["time", "info"],
+                    help="time = standard 5m bars; info = Paper #2 volume/info bars")
     args = ap.parse_args()
-    train_and_save(symbol=args.symbol)
+    train_and_save(symbol=args.symbol, bar_type=args.bar_type)

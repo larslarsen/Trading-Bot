@@ -71,6 +71,48 @@ def fetch_ohlcv(chain, pool, limit):
     return pd.DataFrame(out)
 
 
+def backfill_tokens(rows, sleep=1.0, limit=1000):
+    """Backfill daily OHLCV for a SPECIFIC list of tokens (not the whole
+    universe). `rows` is a list of dicts with symbol/network/pool_address.
+    Used to give newly-discovered universe tokens immediate historical depth
+    so their pre-discovery lookback window is not permanently lost.
+
+    Returns (done, skipped) counts. Best-effort: a failing token is logged and
+    skipped, never raises.
+    """
+    done = skipped = 0
+    for row in rows:
+        _mem_guard(DEFAULT_MEM_LIMIT_MB)
+        sym = str(row["symbol"]).upper()
+        net = str(row["network"])
+        pool = str(row["pool_address"])
+        out = DEX / f"{sym}_1d_max.csv"
+        try:
+            if out.exists():
+                try:
+                    if pd.Timestamp(pd.read_csv(out)["ts"].min()) <= DEEP_ENOUGH:
+                        skipped += 1
+                        continue
+                except Exception:
+                    pass
+            df = fetch_ohlcv(net, pool, limit)
+            if df is None or len(df) == 0:
+                print(f"  {sym}: no OHLC")
+                time.sleep(sleep)
+                gc.collect()
+                continue
+            df.to_csv(out, index=False)
+            done += 1
+            print(f"  {sym}: {len(df)} bars -> {out.name} earliest={df['ts'].min()}")
+        except Exception as e:
+            print(f"  {sym}: backfill ERR: {e!r}")
+        time.sleep(sleep)
+        gc.collect()
+    gc.collect()
+    print(f"\nDEX backfill (specific tokens): {done} done, {skipped} already deep.")
+    return done, skipped
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sleep", type=float, default=1.0)

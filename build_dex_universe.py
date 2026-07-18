@@ -123,22 +123,23 @@ def discover_and_merge(top_n=80, existing=None):
     (deduped on (network, symbol)). Best-effort: any failure is skipped, the
     weekly rebuild never breaks.
 
-    Returns the number of NEW tokens added.
+    Returns (added_count, new_rows) where new_rows is a list of dicts ready
+    for backfill_dex_history.backfill_tokens().
     """
     try:
         import data_quality as dq
         import dex_micro_poller as mpol
     except Exception as e:
         print(f"  [discover] import ERR: {e!r}")
-        return 0
+        return 0, []
     try:
         toks = dq.discover_dex_tokens() or []
     except Exception as e:
         print(f"  [discover] discovery ERR: {e!r}")
-        return 0
+        return 0, []
     if not toks:
         print("  [discover] no tokens discovered (sources gated/offline)")
-        return 0
+        return 0, []
     existing = set(existing or [])
     added = 0
     new_rows = []
@@ -147,12 +148,16 @@ def discover_and_merge(top_n=80, existing=None):
         if not sym or sym in existing or sym in STABLES:
             continue
         try:
-            res = mpol.resolve_address(sym)
-            if not res:
+            # Resolve to a REAL on-chain POOL (GeckoTerminal pool address ==
+            # DexScreener pairAddress for EVM). This is what backfill_dex_history
+            # and dex_forward_collector need -- NOT a bare token contract.
+            import dex_resolve as dr
+            res = dr.real_top_pool(sym)
+            if not res or not res[0]:
                 continue
-            chain, addr = res
-            new_rows.append({"symbol": sym, "network": chain,
-                             "pool_address": addr, "quote": "USDC", "vol24h": 0.0})
+            net, pool, liq = res[0]
+            new_rows.append({"symbol": sym, "network": net,
+                             "pool_address": pool, "quote": "USDC", "vol24h": 0.0})
             existing.add(sym)
             added += 1
             if added >= top_n:
@@ -173,7 +178,7 @@ def discover_and_merge(top_n=80, existing=None):
               f"(now {len(df)} total)")
     else:
         print("  [discover] no new tokens to add")
-    return added
+    return added, new_rows
 
 
 def main():

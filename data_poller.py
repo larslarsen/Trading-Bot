@@ -183,7 +183,15 @@ def universe_worker(s, once):
                     if bdu.OUT.exists():
                         known = set(pd.read_csv(bdu.OUT)["symbol"].astype(str)
                                     .str.upper().tolist())
-                    bdu.discover_and_merge(top_n=80, existing=known)
+                    added, new_rows = bdu.discover_and_merge(top_n=80, existing=known)
+                    # Backfill history for ONLY the newly-added tokens so their
+                    # pre-discovery lookback window is not permanently lost.
+                    if new_rows:
+                        try:
+                            import backfill_dex_history as bdh2
+                            bdh2.backfill_tokens(new_rows)
+                        except Exception as e:
+                            print(f"  [universe] new-token backfill error: {e}", flush=True)
                 except Exception as e:
                     print(f"  [universe] discover error: {e}", flush=True)
                 try:
